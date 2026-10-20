@@ -180,16 +180,57 @@ describe('tool-result pairing', () => {
 
   it('settles a paired call the next host request did not answer', async () => {
     // The host runs the whole tool batch and then sends one request with every
-    // result. If a call is missing from that request, it will never be answered
-    // — waiting longer cannot help.
+    // result. If a call the host *was shown* is missing from that request, it
+    // will never be answered — waiting longer cannot help.
     const pairing = new ToolResultPairing()
     pairing.announce('call_skipped')
+    pairing.mapHostCall('qoder-skipped-1', 'call_skipped')
     const parked = pairing.claim(60_000)
 
     pairing.beginHostRequest(new Set(), false)
 
     await expect(parked).resolves.toMatchObject({ isError: true })
     expect(pairing.parkedCount).toBe(0)
+  })
+
+  it('fails a call the host was never shown instead of parking forever', async () => {
+    // The measured hang of 2026-10-20 (572 s, ended by the user): the inner
+    // model asked for a host tool by its bare name, qodercli could not resolve
+    // it, ran its own loop ahead of the host, and retried with the qualified
+    // name. That retry's block reached the adapter in the window where no host
+    // request was open, so the session dropped it and the host never saw the
+    // call — while the CLI still dispatched its MCP message.
+    //
+    // Parking here can never end: the host files no result for an id it never
+    // received, and the next request that would settle it cannot be sent until
+    // this turn ends. Before this rule the test hangs on `claim` forever.
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_never_shown')
+    // No mapHostCall: `canUseTool` allowed the call, but the adapter never
+    // emitted its block, so no host request can ever carry its result.
+
+    const claimed = await pairing.claim(600_000)
+    expect(claimed.isError).toBe(true)
+    expect(String(claimed.content[0] && 'text' in claimed.content[0] ? claimed.content[0].text : ''))
+      .toContain('未返回这次工具调用的结果')
+    expect(pairing.parkedCount).toBe(0)
+  })
+
+  it('still parks a shown call whose block the host has not answered yet', async () => {
+    // The counterpart of the rule above, and the reason it is safe: a call the
+    // adapter did emit may legitimately wait minutes for its result, so it must
+    // not be failed for being slow.
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_shown')
+    pairing.mapHostCall('qoder-shown-1', 'call_shown')
+
+    const parked = pairing.claim(20)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(pairing.parkedCount).toBe(1)
+
+    const key = pairing.deliver('qoder-shown-1', result('late but real'))
+    pairing.beginHostRequest(new Set([key]), false)
+    await expect(parked).resolves.toMatchObject({ isError: false })
   })
 
   it('settles a handler that arrives after its call was abandoned', async () => {
@@ -257,7 +298,9 @@ describe('tool-result pairing', () => {
   it('cancels a parked call when the host starts a fresh user turn', async () => {
     const pairing = new ToolResultPairing()
     pairing.announce('call_abandoned')
+    pairing.mapHostCall('qoder-abandoned-1', 'call_abandoned')
     const parked = pairing.claim(5_000)
+    expect(pairing.parkedCount).toBe(1)
 
     pairing.beginHostRequest(new Set(), true)
 
@@ -321,7 +364,9 @@ describe('tool-result pairing', () => {
     // `close()` must not leave a handler holding a promise nothing can resolve.
     const pairing = new ToolResultPairing()
     pairing.announce('call_live')
+    pairing.mapHostCall('qoder-live-1', 'call_live')
     const parked = pairing.claim(60_000)
+    expect(pairing.parkedCount).toBe(1)
     pairing.clear()
     await expect(parked).resolves.toMatchObject({ isError: true })
   })

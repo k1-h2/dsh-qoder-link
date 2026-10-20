@@ -421,6 +421,18 @@ function unansweredCall(toolUseId: string): ToolResultPayload {
  * Only a handler with no announced id — where no result can be matched at all
  * — keeps a bounded park as the last-resort recovery.
  *
+ * ## Why the boundary alone is not enough
+ *
+ * The boundary settles what is *already* parked when it runs, and an
+ * announcement that arrives after it is not touched by it. That leaves one
+ * shape a wall clock used to break and nothing else could: the CLI dispatches
+ * an MCP call whose tool-use block never reached the host. No result can be
+ * filed for that id, and the boundary that would settle it needs the next host
+ * request — which needs this turn to end first, and this turn is blocked on the
+ * handler. The turn hangs until the user stops it. {@link claim} therefore
+ * checks {@link ToolResultPairing.hostVisible} before parking: a call the host
+ * was never shown fails at once, exactly as the boundary would have failed it.
+ *
  * Announcements are dropped only where the CLI provably cancels its pending
  * dispatch — {@link forgetUnclaimed} on an aborted or failed turn, and
  * {@link clear} when the session dies.
@@ -447,6 +459,16 @@ export class ToolResultPairing {
    * later call and is safe to keep across turns; it is dropped with the session.
    */
   private readonly hostCallIds = new Map<string, string>()
+  /**
+   * Tool-use ids the host was actually shown, and has not answered yet.
+   *
+   * A host result is filed under a tool-use id only because the adapter emitted
+   * that call's block to the host, so these — and only these — are calls the
+   * host can still answer. {@link claim} refuses to park on any other id; see
+   * the deadlock it prevents there. Mirrors the values of {@link hostCallIds}
+   * and is cleared everywhere that map is.
+   */
+  private readonly hostVisible = new Set<string>()
   /** Suffix for a handler that claimed no announcement, so keys stay distinct. */
   private anonymous = 0
 
@@ -458,6 +480,7 @@ export class ToolResultPairing {
   /** Record which tool-use id a model-emitted tool-call block belongs to. */
   mapHostCall(hostCallId: string, toolUseId: string): void {
     this.hostCallIds.set(hostCallId, toolUseId)
+    this.hostVisible.add(toolUseId)
   }
 
   /**
@@ -470,6 +493,10 @@ export class ToolResultPairing {
    * reached only by a handler the CLI never announced, where no id exists to
    * match a result against and a bounded park remains the last resort.
    *
+   * Parking forever is safe only for a call the host was shown; an announced id
+   * the host never received fails at once rather than hanging the turn. See the
+   * measurement in the body.
+   *
    * @param timeoutMs - how long an *unpaired* handler waits before failing.
    * @returns the host's result, a cancellation, or a timeout payload.
    */
@@ -481,6 +508,21 @@ export class ToolResultPairing {
         this.buffered.delete(toolUseId)
         return ready
       }
+      // An announcement says only that the CLI allowed a call; it does not prove
+      // the host ever saw it. A block that arrives while no host request is open
+      // is dropped by the session, yet the CLI still dispatches its MCP message
+      // — measured on a turn whose model asked for a host tool by its bare name,
+      // was refused by the CLI's own scheduler, and retried 105 s later with the
+      // qualified name: that retry's block landed 26 ms before the next host
+      // request opened, so nothing was emitted to the host, and parking on it
+      // hung the turn for 572 s until the user stopped it.
+      //
+      // Nothing can end that wait: a result arrives only on a host request, the
+      // next host request cannot be sent until this turn finishes, and this turn
+      // cannot finish while the handler is parked. So a call the host was never
+      // shown fails now, with the same cancellation the request boundary would
+      // have produced one round later.
+      if (!this.hostVisible.has(toolUseId)) return unansweredCall(toolUseId)
       return await this.park(toolUseId)
     }
     const abandoned = this.abandoned.shift()
@@ -546,6 +588,7 @@ export class ToolResultPairing {
     // A host call id is answered once; keeping the mapping would only retain
     // one string per tool call for the life of the session.
     this.hostCallIds.delete(hostCallId)
+    this.hostVisible.delete(key)
     const resolve = this.parked.get(key)
     if (resolve !== undefined) {
       this.parked.delete(key)
@@ -604,6 +647,7 @@ export class ToolResultPairing {
       if (!delivered.has(key)) this.buffered.delete(key)
     }
     this.hostCallIds.clear()
+    this.hostVisible.clear()
   }
 
   /**
@@ -635,6 +679,7 @@ export class ToolResultPairing {
     this.cancelParked()
     this.buffered.clear()
     this.hostCallIds.clear()
+    this.hostVisible.clear()
   }
 
   /** Drop all pairing state; the session is being torn down. */
@@ -645,6 +690,7 @@ export class ToolResultPairing {
     this.announced.length = 0
     this.abandoned.length = 0
     this.hostCallIds.clear()
+    this.hostVisible.clear()
     this.buffered.clear()
   }
 

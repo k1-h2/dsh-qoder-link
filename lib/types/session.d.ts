@@ -246,6 +246,18 @@ export declare function gateTools(toolName: string, _input: unknown, options: {
  * Only a handler with no announced id — where no result can be matched at all
  * — keeps a bounded park as the last-resort recovery.
  *
+ * ## Why the boundary alone is not enough
+ *
+ * The boundary settles what is *already* parked when it runs, and an
+ * announcement that arrives after it is not touched by it. That leaves one
+ * shape a wall clock used to break and nothing else could: the CLI dispatches
+ * an MCP call whose tool-use block never reached the host. No result can be
+ * filed for that id, and the boundary that would settle it needs the next host
+ * request — which needs this turn to end first, and this turn is blocked on the
+ * handler. The turn hangs until the user stops it. {@link claim} therefore
+ * checks {@link ToolResultPairing.hostVisible} before parking: a call the host
+ * was never shown fails at once, exactly as the boundary would have failed it.
+ *
  * Announcements are dropped only where the CLI provably cancels its pending
  * dispatch — {@link forgetUnclaimed} on an aborted or failed turn, and
  * {@link clear} when the session dies.
@@ -272,6 +284,16 @@ export declare class ToolResultPairing {
      * later call and is safe to keep across turns; it is dropped with the session.
      */
     private readonly hostCallIds;
+    /**
+     * Tool-use ids the host was actually shown, and has not answered yet.
+     *
+     * A host result is filed under a tool-use id only because the adapter emitted
+     * that call's block to the host, so these — and only these — are calls the
+     * host can still answer. {@link claim} refuses to park on any other id; see
+     * the deadlock it prevents there. Mirrors the values of {@link hostCallIds}
+     * and is cleared everywhere that map is.
+     */
+    private readonly hostVisible;
     /** Suffix for a handler that claimed no announcement, so keys stay distinct. */
     private anonymous;
     /** Record the tool-use id `canUseTool` allowed, in execution order. */
@@ -287,6 +309,10 @@ export declare class ToolResultPairing {
      * settles it instead — see {@link beginHostRequest}. `timeoutMs` is therefore
      * reached only by a handler the CLI never announced, where no id exists to
      * match a result against and a bounded park remains the last resort.
+     *
+     * Parking forever is safe only for a call the host was shown; an announced id
+     * the host never received fails at once rather than hanging the turn. See the
+     * measurement in the body.
      *
      * @param timeoutMs - how long an *unpaired* handler waits before failing.
      * @returns the host's result, a cancellation, or a timeout payload.
