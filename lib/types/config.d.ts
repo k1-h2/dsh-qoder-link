@@ -76,8 +76,12 @@ export interface Config {
      */
     defaultMaxTokens?: number;
     /**
-     * Seconds the inner model waits for a host tool result before that call is
-     * cancelled.
+     * Fallback seconds for a tool handler that could not be paired with a host
+     * call (no announced tool-use id to match a result against).
+     *
+     * Paired calls are not bounded by this: a host tool may run for minutes, so
+     * they wait for the host request that carries their result and are settled at
+     * that request boundary when it does not.
      */
     toolResultTimeoutSeconds?: number;
     /**

@@ -18,6 +18,13 @@
  * this code used to do — made a fast host tool park under a fallback key and
  * wait out the whole tool-result timeout, which is the "model stopped answering"
  * stall users worked around by stopping the conversation and resending.
+ *
+ * A second, independent cause of the same symptom is pinned there too: the host
+ * batches every result of a tool round into its next request, so a slow sibling
+ * (a 300 s pwsh) delays a result that is already ready. A wall-clock deadline on
+ * a paired handler cancelled that call at 120 s in a live log; the pairing now
+ * waits for the request boundary and only settles calls that request did not
+ * answer.
  */
 import { describe, expect, it } from 'vitest'
 import { ToolResultPairing, carriesTokens, meteredUsage, requestUsageSample } from '../src/session.ts'
@@ -142,12 +149,74 @@ describe('tool-result pairing', () => {
     // handler fires. Nothing here is turn-scoped state the turn may clear.
     pairing.announce('call_80d292a7')
     pairing.mapHostCall('qoder-probe-1', 'call_80d292a7')
-    pairing.deliver('qoder-probe-1', result('The secret word is BANANA.'))
+    const key = pairing.deliver('qoder-probe-1', result('The secret word is BANANA.'))
+    // Turn N+1 starts and carries that result. The request boundary must keep
+    // both the announcement and the buffered result.
+    pairing.beginHostRequest(new Set([key]), false)
 
-    // Turn N+1 starts. A turn boundary must not drop the pending pairing.
     const claimed = await pairing.claim(50)
     expect(claimed.content).toEqual([{ type: 'text', text: 'The secret word is BANANA.' }])
     expect(claimed.isError).toBe(false)
+  })
+
+  it('waits past the fallback timeout while the host is still running a tool', async () => {
+    // The regression: a host tool is allowed to run for minutes, and its result
+    // only arrives with the next host request. A wall-clock deadline here
+    // cancelled a call whose real result was still on its way (measured against
+    // a 300 s pwsh: the handler died at 120 s, the result arrived 45 s later).
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_slow_host')
+    pairing.mapHostCall('qoder-slow-host-1', 'call_slow_host')
+
+    const parked = pairing.claim(20)
+    await new Promise(resolve => setTimeout(resolve, 60))
+
+    const key = pairing.deliver('qoder-slow-host-1', result('slow but real'))
+    pairing.beginHostRequest(new Set([key]), false)
+
+    await expect(parked).resolves.toMatchObject({ isError: false })
+    expect((await parked).content).toEqual([{ type: 'text', text: 'slow but real' }])
+  })
+
+  it('settles a paired call the next host request did not answer', async () => {
+    // The host runs the whole tool batch and then sends one request with every
+    // result. If a call is missing from that request, it will never be answered
+    // — waiting longer cannot help.
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_skipped')
+    const parked = pairing.claim(60_000)
+
+    pairing.beginHostRequest(new Set(), false)
+
+    await expect(parked).resolves.toMatchObject({ isError: true })
+    expect(pairing.parkedCount).toBe(0)
+  })
+
+  it('settles a handler that arrives after its call was abandoned', async () => {
+    // The boundary may run before the CLI dispatches the MCP message. That
+    // handler must not park for the full fallback timeout; its call is already
+    // known to be unanswerable.
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_skipped')
+    pairing.beginHostRequest(new Set(), false)
+
+    const claimed = await pairing.claim(60_000)
+    expect(claimed.isError).toBe(true)
+    expect(String(claimed.content[0] && 'text' in claimed.content[0] ? claimed.content[0].text : ''))
+      .toContain('未返回这次工具调用的结果')
+  })
+
+  it('hands a lone buffered result to a handler with no announcement', async () => {
+    // A permission ask that never reached the pairing leaves the handler with no
+    // id. With nothing else outstanding, the one unclaimed result is still the
+    // only possible match, so it must not be dropped.
+    const pairing = new ToolResultPairing()
+    pairing.mapHostCall('qoder-unannounced-1', 'call_unannounced')
+    const key = pairing.deliver('qoder-unannounced-1', result('matched anyway'))
+    pairing.beginHostRequest(new Set([key]), false)
+
+    const claimed = await pairing.claim(50)
+    expect(claimed.content).toEqual([{ type: 'text', text: 'matched anyway' }])
   })
 
   it('wakes a handler that parked before the host answered', async () => {
@@ -189,16 +258,43 @@ describe('tool-result pairing', () => {
     const pairing = new ToolResultPairing()
     pairing.announce('call_abandoned')
     const parked = pairing.claim(5_000)
-    pairing.cancelParked()
+
+    pairing.beginHostRequest(new Set(), true)
+
     await expect(parked).resolves.toMatchObject({ isError: true })
     expect(pairing.parkedCount).toBe(0)
   })
 
-  it('still fails a call the host never answers, rather than hanging forever', async () => {
-    // The bounded park is what keeps a lost pairing from deadlocking the inner
-    // loop; it must survive as the last-resort recovery.
+  it('keeps delivered results when the request also carries a runtime-context user message', async () => {
+    // The host refreshes its runtime-context snapshot as a user-role message on
+    // some continuation requests. That must not supersede the tool round: the
+    // results delivered in the same request still belong to their handlers.
     const pairing = new ToolResultPairing()
-    pairing.announce('call_never_answered')
+    pairing.announce('call_fast')
+    pairing.mapHostCall('qoder-fast', 'call_fast')
+    const key = pairing.deliver('qoder-fast', result('real result'))
+    pairing.beginHostRequest(new Set([key]), true)
+
+    const claimed = await pairing.claim(50)
+    expect(claimed.content).toEqual([{ type: 'text', text: 'real result' }])
+  })
+
+  it('cancels a handler that arrives after a fresh user turn superseded it', async () => {
+    // Same race as the fast-result path, but in the other direction: the user
+    // replaced the turn before the CLI dispatched its MCP message. That handler
+    // must settle immediately instead of parking for minutes.
+    const pairing = new ToolResultPairing()
+    pairing.announce('call_superseded')
+    pairing.beginHostRequest(new Set(), true)
+
+    const claimed = await pairing.claim(60_000)
+    expect(claimed.isError).toBe(true)
+  })
+
+  it('still fails an unpaired handler rather than hanging forever', async () => {
+    // The bounded park remains the last-resort recovery for a handler with no
+    // announced id, where no delivered result can be matched to it at all.
+    const pairing = new ToolResultPairing()
     const claimed = await pairing.claim(20)
     expect(claimed.isError).toBe(true)
     expect(String(claimed.content[0] && 'text' in claimed.content[0] ? claimed.content[0].text : ''))

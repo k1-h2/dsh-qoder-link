@@ -82,8 +82,12 @@ export interface Config {
    */
   defaultMaxTokens?: number
   /**
-   * Seconds the inner model waits for a host tool result before that call is
-   * cancelled.
+   * Fallback seconds for a tool handler that could not be paired with a host
+   * call (no announced tool-use id to match a result against).
+   *
+   * Paired calls are not bounded by this: a host tool may run for minutes, so
+   * they wait for the host request that carries their result and are settled at
+   * that request boundary when it does not.
    */
   toolResultTimeoutSeconds?: number
   /**
@@ -144,7 +148,7 @@ export const Config = z.object({
   modelAliases: z.dict(z.string()).default({}).description('额外的模型别名映射：DSH 侧名称 → Qoder 模型 ID。内置 deepseek-v4-* 别名仍然生效。').volatile(),
   defaultReasoningEffort: z.string().default('').description('请求未指定思考档位时使用的默认档位；留空则用上游默认。').volatile(),
   defaultMaxTokens: z.number().step(1).min(1).default(32_000).description('模型未声明输出上限时使用的输出上限。').volatile(),
-  toolResultTimeoutSeconds: z.number().step(1).min(5).max(3_600).default(120).description('内层模型等待宿主返回工具结果的时限（秒），超时则取消该次工具调用。').volatile(),
+  toolResultTimeoutSeconds: z.number().step(1).min(5).max(3_600).default(120).description('仅用于未配对 handler 的兜底时限（秒）：正常工具调用会等宿主下一次请求携带结果，不按此超时。').volatile(),
   catalogFetchTimeoutSeconds: z.number().step(1).min(1).max(300).default(20).description('拉取模型列表的时限（秒），超时后回退到内置列表。').volatile(),
   abortGraceSeconds: z.number().step(1).min(1).max(120).default(5).description('内层进程确认中断的宽限时间（秒）。').volatile(),
   coldMaxTurns: z.number().step(1).min(1).max(32).default(4).description('旁路请求（生成标题、压缩摘要）允许的最大内层轮次。').volatile(),

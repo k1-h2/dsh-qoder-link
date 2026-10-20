@@ -38,7 +38,7 @@ export interface QoderAdapterOptions {
     modelCacheTtlMs?: Live<number>;
     /** Request-image reader; absent → images are never forwarded as pixels. */
     readImage?: ImageRequestReader;
-    /** How long an MCP tool handler waits for the host tool result. */
+    /** How long an unpaired MCP tool handler waits before failing its call. */
     toolResultTimeoutMs?: Live<number>;
     /** How long the inner process gets to acknowledge an abort. */
     abortGraceMs?: Live<number>;

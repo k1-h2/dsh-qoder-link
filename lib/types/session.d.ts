@@ -24,7 +24,7 @@ export declare const DEFAULT_MAX_SESSIONS = 8;
  * knobs it started with.
  */
 export interface SessionRuntimeOptions {
-    /** How long an MCP tool handler waits for the host tool result. */
+    /** How long an unpaired MCP tool handler waits before failing its call. */
     toolResultTimeoutMs?: Live<number>;
     /** How long the inner process gets to acknowledge an abort. */
     abortGraceMs?: Live<number>;
@@ -223,8 +223,31 @@ export declare function gateTools(toolName: string, _input: unknown, options: {
  * handler before the turn ends and takes the other path, while a fast one
  * (`read`, `ask_user_question`) loses the race.
  *
- * Announcements are therefore dropped only where the CLI provably cancels its
- * pending dispatch — {@link forgetUnclaimed} on an aborted or failed turn, and
+ * ## Why a parked call must not have a wall-clock deadline
+ *
+ * A host result can only arrive on the next host request: the host runs every
+ * tool of the round first, then sends one request carrying all their results.
+ * A host tool is allowed to run for minutes (a build, a directory scan, a long
+ * shell command), and one slow tool delays the results of its whole batch. A
+ * fixed 120 s deadline therefore cancels calls whose real result is still on
+ * its way:
+ *
+ * ```
+ * 10:07:53  [mcp handler] PARK call_00_QFqbaum… (write — result ready at once)
+ * 10:07:53  [host]         pwsh starts (its own timeout: 300 s)
+ * 10:09:53  [mcp handler] TIMED OUT after 120s   <- write cancelled for nothing
+ * 10:10:38  [host]         first request arrives with all three results
+ * ```
+ *
+ * The request boundary is the real signal: the request that continues a tool
+ * round carries a result for every call the host answered; a call it did not
+ * answer in that request will never be answered. {@link beginHostRequest}
+ * settles those, so a slow host never loses a result it was about to send.
+ * Only a handler with no announced id — where no result can be matched at all
+ * — keeps a bounded park as the last-resort recovery.
+ *
+ * Announcements are dropped only where the CLI provably cancels its pending
+ * dispatch — {@link forgetUnclaimed} on an aborted or failed turn, and
  * {@link clear} when the session dies.
  */
 export declare class ToolResultPairing {
@@ -234,6 +257,14 @@ export declare class ToolResultPairing {
     private readonly buffered;
     /** Tool-use ids `canUseTool` allowed, in execution order, awaiting a handler. */
     private readonly announced;
+    /**
+     * Announcements a host request has moved past without answering.
+     *
+     * A handler for one of these can still fire (the CLI decides when to dispatch
+     * the MCP call), but no result will ever arrive for it; {@link claim} settles
+     * it immediately instead of parking it for the fallback timeout.
+     */
+    private readonly abandoned;
     /**
      * Host callId (`qoder-N`) → qodercli tool-use id, from the content-block ids.
      *
@@ -251,10 +282,21 @@ export declare class ToolResultPairing {
      * Hand one MCP handler the result the host already delivered, or park it until
      * the host delivers one.
      *
-     * @param timeoutMs - how long a parked handler waits before failing the call.
-     * @returns the host's result, or a cancellation payload on timeout.
+     * A paired call is NOT timed out. The host can only answer on its next
+     * request, and a host tool may legitimately run for minutes; the next request
+     * settles it instead — see {@link beginHostRequest}. `timeoutMs` is therefore
+     * reached only by a handler the CLI never announced, where no id exists to
+     * match a result against and a bounded park remains the last resort.
+     *
+     * @param timeoutMs - how long an *unpaired* handler waits before failing.
+     * @returns the host's result, a cancellation, or a timeout payload.
      */
     claim(timeoutMs: number): Promise<ToolResultPayload>;
+    /**
+     * Park one handler under `key` until the host answers, the request boundary
+     * settles it, or — for an unpaired key only — the fallback timeout expires.
+     */
+    private park;
     /**
      * File one host tool result against the call it answers.
      *
@@ -264,20 +306,53 @@ export declare class ToolResultPairing {
      *
      * @param hostCallId - the host-facing call id from the tool-result message.
      * @param payload - the rendered result.
+     * @returns the tool-use id the result was filed under, for the request
+     *   boundary that settles the rest of the round.
      */
-    deliver(hostCallId: string, payload: ToolResultPayload): void;
+    deliver(hostCallId: string, payload: ToolResultPayload): string;
+    /**
+     * Settle the pairing against one arriving host request.
+     *
+     * The host runs every tool of a round before it sends the request that
+     * continues the conversation, and that request carries a result for every
+     * call it answered. A call it did not answer there will never be answered,
+     * so this boundary — not a wall clock — decides that a handler is stranded:
+     *
+     *  - a handler parked under an unanswered id is released now;
+     *  - an announcement whose handler has not fired yet is marked abandoned, so
+     *    that handler settles as soon as it does arrive;
+     *  - a buffered result from an earlier round whose handler never arrived is
+     *    dropped, because no later request can produce that handler.
+     *
+     * A fresh user turn is handled by the same rules: the results the request
+     * still carries are delivered, and the calls it left unanswered are
+     * superseded. It differs only in the cancellation text the model reads.
+     *
+     * `delivered` is what protects the fast-handler race: a result can arrive
+     * before the CLI dispatches the MCP handler, and a runtime-context snapshot
+     * can make the same request look like a new user turn. Keeping everything
+     * this request answered, in both cases, is what lets that handler collect
+     * the real result instead of a cancellation.
+     *
+     * @param delivered - tool-use ids the host just delivered a result for.
+     * @param freshUserTurn - whether the request carries a new user message.
+     */
+    beginHostRequest(delivered: ReadonlySet<string>, freshUserTurn: boolean): void;
     /**
      * Release every parked handler: the host started a fresh user turn while their
      * calls were still outstanding, so those calls can never be answered.
      */
     cancelParked(): void;
     /**
-     * Drop announcements no handler can still claim.
+     * Drop announcements no handler can still claim, and release parked handlers.
      *
      * An aborted or failed turn is one where the CLI cancels its pending tool
      * dispatch, so an id it announced but never dispatched would otherwise shift
      * the pairing of the NEXT turn's handler by one slot and park it under a key
      * nothing resolves — reintroducing the very stall this class exists to fix.
+     * A handler that was already dispatched still needs an answer, so parked
+     * handlers settle here, and announcements move to the abandoned queue in case
+     * their dispatch was already in flight when the turn died.
      */
     forgetUnclaimed(): void;
     /** Drop all pairing state; the session is being torn down. */
@@ -408,7 +483,8 @@ export declare class QoderSession {
     /** Register any host tools whose schema this session's MCP server lacks. */
     ensureTools(tools: readonly ToolSchema[]): void;
     /**
-     * Deliver host tool results to parked or buffered handlers, keyed by call id.
+     * Deliver host tool results to parked or buffered handlers, keyed by call id,
+     * and settle the previous round at this request boundary.
      * @param tail - the host messages appended since the previous request.
      * @param images - adapter-resolved request images keyed by attachment id; an
      *   id missing from the map degrades to handle text.
