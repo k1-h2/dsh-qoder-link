@@ -19,17 +19,19 @@ MIT 不要求衍生作品沿用同一许可（无 copyleft 条款），但本项
 
 ## 本仓库相对上游的改动
 
-1. **接入官方 CN SDK**：上游依赖 `@qoder-ai/qoder-agent-sdk`（国际版），其编译期品牌
+1. **同时接入两个官方 SDK**：上游只依赖 `@qoder-ai/qoder-agent-sdk`（国际版），其编译期品牌
    硬编码为 `global`（`cliCommands: qodercli/qoder`、配置目录 `.qoder`、
-   `QODER_PERSONAL_ACCESS_TOKEN`），在只装了 `qoderclicn` 的机器上无法工作。
-   本项目改用官方 **CN** 包 `@qodercn-ai/qodercn-agent-sdk`（`brand: cn`、
-   `cliCommands: qoderclicn/qodercn`、配置目录 `.qoder-cn`、`QODERCN_*`）。
-   两个包的 `dist/*.d.ts` 经比对逐字节相同，故 API 层面为直接替换。
-2. **单一 provider id**：只注册 `qoder-cn`（上游为 `qoder`，另有 `qoder-byok` 承载账号自己添加的
-   自带 Key 模型）。本项目用不到那批自定义模型——DSH 只走订阅自己的目录——因此不注册第二条路由，
-   并在目录层丢弃上游标记为 `user`/`custom` 的条目，模型选择器里只有一个分组。id 与上游不同，两者
-   可在同一 profile 中共存而不冲突。
-3. **可配置设置面**：新增 `src/config.ts`，声明 12 个带中文说明的配置项。设置页由本插件
+   `QODER_PERSONAL_ACCESS_TOKEN`），在只装了 `qoderclicn` 的机器上无法工作。本项目最初改用
+   官方 **CN** 包 `@qodercn-ai/qodercn-agent-sdk`（`brand: cn`、`cliCommands: qoderclicn/qodercn`、
+   配置目录 `.qoder-cn`、`QODERCN_*`）；v1.1.0 起把国际版包也装了回来，作为**另一个独立
+   adapter** 与 CN 并行工作，而不是二选一。品牌差异集中在 `src/brand.ts`，其余代码按 brand
+   参数化。两个包的公开 API 一致，故共用同一套会话、目录与额度代码。
+2. **两个 provider id**：注册 `qoder-cn` 与 `qoder-intl` 两条路由（上游为 `qoder`，另有
+   `qoder-byok` 承载账号自己添加的自带 Key 模型）。本项目用不到那批自定义模型——DSH 只走订阅
+   自己的目录——因此在目录层丢弃上游标记为 `user`/`custom` 的条目，每个版本只有一个分组。
+   id 与上游不同，两者可在同一 profile 中共存而不冲突。
+3. **可配置设置面**：新增 `src/config.ts`，声明带中文说明的配置项（CN 与国际版各一套模型开关 /
+   窗口 / 别名）。设置页由本插件
    自带的 `client.js` 注册为**独立顶层导航项**（`settings.section`）——DSH 的自动配置页渲染在
    「内置插件」分区内部，要独立入口就得自带浏览器半侧。两个前提缺一不可：每个字段必须
    `.volatile()`（`volatileForm` 只保留 volatile 节点，否则整个命名空间不会下发到客户端），
@@ -55,9 +57,10 @@ MIT 不要求衍生作品沿用同一许可（无 copyleft 条款），但本项
    （表现为「点了没反应」）。本仓库改为全部按需读取（`src/live.ts` 的 `Live<T>` 与
    `liveConfig()`），只对决定选择器分组名的 `displayName` 监听 `loader/volatile-update` 就地重发。
 
-9. **一键配置 CLI（仅 Windows）**：随包发布 `scripts/setup-qoderclicn.bat`——检查 node/npm、
-   缺就 `npm install -g @qodercn-ai/qoderclicn`、未登录就 `qoderclicn login`、最后校验版本 /
-   登录态 / 凭证目录 / 模型数量。设置页底部的分组通过 `POST /api/llm-qoder-cn/setup` 让宿主
+9. **一键配置 CLI（仅 Windows）**：随包发布 `scripts/setup-qoderclicn.bat` 与
+   `scripts/setup-qodercli.bat`——检查 node/npm、缺就 `npm install -g` 对应包、未登录就
+   `login`、最后校验版本 / 登录态 / 凭证目录 / 模型数量。设置页底部的分组通过
+   `POST /api/llm-qoder-cn/setup`（body 带 `brand`）让宿主
    进程代跑它并实时回传输出（浏览器无法启动本地进程）：面板只跟着这一次运行走，脚本结束 1 秒就
    自动收起，需要再看用「查看输出」展开；模型列表为空时页面直接红字引导点一键配置。mode 只有两
    个键的白名单，各自映射到一个字面 flag——`configure` → `--gui`（装 + 登录 + 校验），`login` →
@@ -79,6 +82,7 @@ Qoder、Qoder CN、DeepSeek、DeepSeek Harness 等名称与商标归各自权利
 此处仅作兼容性描述之用。本项目与 Qoder（通义云启）、DeepSeek 官方均无关联，
 是非官方社区适配器。
 
-**使用风险自负。** 本插件通过官方 Agent SDK 复用本机 `qoderclicn` 登录态，
-不逆向协议、不伪造客户端身份、不自动化领取签到积分；但"以订阅额度驱动第三方宿主"
-是否符合你的 Qoder 服务条款，由你自行判断。详见 README 的「合规与风险」一节。
+**使用风险自负。** 本插件通过官方 Agent SDK 复用本机 `qoderclicn` / `qodercli`
+登录态，不逆向协议、不伪造客户端身份、不自动化领取签到积分；额度只读展示，不发起任何
+兑换或领取请求。但"以订阅额度驱动第三方宿主"是否符合你的 Qoder 服务条款，由你自行
+判断。详见 README 的「合规与风险」一节。

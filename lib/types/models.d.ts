@@ -1,12 +1,18 @@
 /**
- * Live model catalog retrieval from the local Qoder CLI. One short-lived
- * inner session sends the SDK's `get_models` control request; the response
- * (including account-custom models) stays fresh for a TTL, concurrent
- * callers share one in-flight fetch, and the static catalog is the fallback
- * while the CLI is unreachable.
+ * Live model catalog retrieval from one edition's local Qoder CLI. One
+ * short-lived inner session sends the SDK's `get_models` control request; the
+ * response (including account-custom models) stays fresh for a TTL, concurrent
+ * callers share one in-flight fetch, and the static CN catalog is the fallback
+ * while that edition's CLI is unreachable.
+ *
+ * The CN and international editions publish different catalogs, so cache and
+ * fallback are kept per brand: a list fetched from one account must never be
+ * served to the other route.
+ *
  * @module dsh-llm-qoder/models
  */
 import type { ModelInfo } from '@qodercn-ai/qodercn-agent-sdk';
+import type { QoderBrand } from './brand.ts';
 import type { QoderCatalogModel } from './catalog.ts';
 import type { Live } from './live.ts';
 /** How long a fetched catalog stays fresh by default. */
@@ -15,17 +21,21 @@ export declare const DEFAULT_MODEL_CACHE_TTL_MS: number;
 export declare const DEFAULT_FETCH_TIMEOUT_MS = 20000;
 /** Cached live CLI catalog with a static fallback. */
 export declare class QoderModelCatalog {
+    private readonly brand;
     private readonly ttlMs;
     private readonly fetchTimeoutMs;
     private cached;
     private inflight;
+    /** Why the last refresh failed, for the settings page's guidance. */
+    private failure;
     /**
+     * @param brand - which edition's CLI answers.
      * @param ttlMs - how long a fetched catalog stays fresh before a re-fetch.
      *   Read per use, so a settings edit takes effect on the next read.
      * @param fetchTimeoutMs - how long one CLI catalog fetch may take before the
      *   static fallback takes over.
      */
-    constructor(ttlMs: Live<number>, fetchTimeoutMs?: Live<number>);
+    constructor(brand: QoderBrand, ttlMs: Live<number>, fetchTimeoutMs?: Live<number>);
     /**
      * Raw live entries; the stale snapshot when a refresh fails, else nothing.
      *
@@ -33,6 +43,8 @@ export declare class QoderModelCatalog {
      * settings page cannot disagree about what the account has.
      */
     liveModels(): Promise<readonly ModelInfo[]>;
+    /** Why the last refresh failed, or undefined when it succeeded. */
+    get error(): string | undefined;
     /**
      * Drop the cached catalog so the next read goes back to the CLI.
      *
@@ -59,3 +71,4 @@ export declare class QoderModelCatalog {
 export declare function priceFactorOf(entry: {
     priceFactor?: number;
 }): number | undefined;
+export declare function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T>;

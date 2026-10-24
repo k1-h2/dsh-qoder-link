@@ -1,10 +1,12 @@
 /**
  * dsh-qoder-link — browser half.
  *
- * Contributes one top-level settings section (id `qoder-cn`) whose entire
- * content is the model list: every model the account exposes, each with an
- * on/off switch and a context-window choice, plus a collapsed "advanced" area
- * holding the handful of scalars worth reaching without editing YAML.
+ * Contributes one top-level settings section per enabled edition (`qoder-cn`,
+ * `qoder-intl`), each showing the account quota and then the model list: every
+ * model the account exposes, with an on/off switch and a context-window choice,
+ * plus a collapsed "advanced" area holding the scalars worth reaching without
+ * editing YAML. The plugin manager's page for this bundle carries the two
+ * switches that decide which of those sections exist.
  *
  * The model list cannot come from the config form: it is fetched live from the
  * Qoder CLI. So the page reads `GET <prefix>/models`, which joins that live
@@ -78,6 +80,44 @@ window.__ModuleLoader__.load({
       cliExitFail: '配置脚本未通过，退出码',
       cliShowLog: '查看输出',
       cliHideLog: '收起输出',
+      cliUninstall: '卸载 CLI',
+      cliUninstallConfirm: '确定要卸载本机的 Qoder CLI 吗？卸载后需要重新安装才能继续使用，登录凭证会保留。',
+      cliUninstalling: '正在卸载…',
+      cliUninstallOk: 'CLI 已卸载',
+      intlNav: 'Qoder 国际版',
+      intlTitle: 'Qoder 国际版',
+      intlIntro: '国际版账户（qoder.com）的模型与额度。勾选要启用的模型，并为需要的模型指定上下文窗口。改动即时生效，无需重启。',
+      intlNoModels: '国际版账号没有返回任何模型：一般是本机 qodercli 还没装好，或者还没登录。',
+      intlCliGroup: 'Qoder 国际版 CLI',
+      intlCliHint: '插件复用本机 qodercli 的登录态。这里可以直接跑随包附带的配置脚本：缺 CLI 就装，未登录就拉起浏览器登录。',
+      usageTitle: '额度',
+      usageLoading: '正在读取额度…',
+      usageRefresh: '刷新额度',
+      usageUnavailable: '无法读取额度',
+      usageRetry: '重试',
+      usageAccount: '账号',
+      usagePlan: '套餐',
+      usageUsed: '已用',
+      usageRemaining: '剩余',
+      usageOf: '/',
+      usageCredits: 'credits',
+      usagePlanQuota: '套餐额度',
+      usageAddOn: '加量包',
+      usageOrgPackage: '组织资源包',
+      usageExpires: '到期',
+      usageNever: '长期有效',
+      usageDetail: '用量明细',
+      usageUpgrade: '升级套餐',
+      usageExceeded: '额度已用完',
+      usageUpdated: '更新于',
+      usageUnknownPlan: '未知套餐',
+      usageStale: '显示上次读数，刷新失败',
+      pluginOptionsTitle: '启用的版本',
+      pluginOptionsHint: '关闭后，对应设置页、模型列表与模型分组都会移除；已保存的模型选择保留，重新打开即可恢复。',
+      pluginOptionsOn: '显示中',
+      pluginOptionsOff: '已关闭',
+      pluginOptionsReadOnly: '当前配置不可写',
+      pluginOptionsRejected: '宿主拒绝了这次改动；若刚更新过插件，请重启 DSH 后再试',
       advancedFields: {
         displayName: '分组名称',
         maxSessions: '并发会话数',
@@ -89,6 +129,8 @@ window.__ModuleLoader__.load({
         abortGraceSeconds: '中断宽限（秒）',
         coldMaxTurns: '旁路请求轮次',
         modelAliases: '模型别名',
+        intlDisplayName: '国际版分组名称',
+        intlModelAliases: '国际版模型别名',
       },
     }
     const en = {
@@ -132,6 +174,44 @@ window.__ModuleLoader__.load({
       cliExitFail: 'Helper failed with exit code',
       cliShowLog: 'Show output',
       cliHideLog: 'Hide output',
+      cliUninstall: 'Uninstall CLI',
+      cliUninstallConfirm: 'Uninstall the Qoder CLI from this machine? It must be installed again to keep using this edition. Sign-in files are kept.',
+      cliUninstalling: 'Uninstalling…',
+      cliUninstallOk: 'CLI uninstalled',
+      intlNav: 'Qoder International',
+      intlTitle: 'Qoder International',
+      intlIntro: 'Models and quota for the international account (qoder.com). Tick the models you want available and set a context window where needed. Changes apply immediately.',
+      intlNoModels: 'The international account returned no models - usually qodercli is not installed on this machine, or not signed in.',
+      intlCliGroup: 'Qoder International CLI',
+      intlCliHint: 'The plugin reuses this machine\u2019s qodercli sign-in. Run the bundled helper from here: it installs the CLI when missing and opens the browser sign-in when signed out.',
+      usageTitle: 'Quota',
+      usageLoading: 'Reading quota…',
+      usageRefresh: 'Refresh quota',
+      usageUnavailable: 'Could not read the quota',
+      usageRetry: 'Retry',
+      usageAccount: 'Account',
+      usagePlan: 'Plan',
+      usageUsed: 'Used',
+      usageRemaining: 'Remaining',
+      usageOf: '/',
+      usageCredits: 'credits',
+      usagePlanQuota: 'Plan quota',
+      usageAddOn: 'Add-on package',
+      usageOrgPackage: 'Organization package',
+      usageExpires: 'Expires',
+      usageNever: 'No expiry',
+      usageDetail: 'Usage details',
+      usageUpgrade: 'Upgrade',
+      usageExceeded: 'Quota exhausted',
+      usageUpdated: 'Updated',
+      usageUnknownPlan: 'Unknown plan',
+      usageStale: 'Showing the last reading; refresh failed',
+      pluginOptionsTitle: 'Enabled editions',
+      pluginOptionsHint: 'Turning one off removes its settings page, model list, and model group. Saved model choices are kept, so turning it back on restores them.',
+      pluginOptionsOn: 'Shown',
+      pluginOptionsOff: 'Off',
+      pluginOptionsReadOnly: 'This configuration is read-only',
+      pluginOptionsRejected: 'The host rejected this change; if you just updated the plugin, restart DSH and retry',
       advancedFields: {
         displayName: 'Group name',
         maxSessions: 'Concurrent sessions',
@@ -143,6 +223,8 @@ window.__ModuleLoader__.load({
         abortGraceSeconds: 'Abort grace (s)',
         coldMaxTurns: 'Side-channel turns',
         modelAliases: 'Model aliases',
+        intlDisplayName: 'International group name',
+        intlModelAliases: 'International model aliases',
       },
     }
 
@@ -152,17 +234,69 @@ window.__ModuleLoader__.load({
      * The schema is the source of truth for labels, help text and bounds; this
      * list only decides order and which control each field gets.
      */
-    const ADVANCED = [
-      ['displayName', 'text'],
-      ['maxSessions', 'number'],
-      ['modelCacheTtlSeconds', 'number'],
-      ['defaultReasoningEffort', 'text'],
-      ['defaultMaxTokens', 'number'],
-      ['toolResultTimeoutSeconds', 'number'],
-      ['catalogFetchTimeoutSeconds', 'number'],
-      ['abortGraceSeconds', 'number'],
-      ['coldMaxTurns', 'number'],
-      ['modelAliases', 'json'],
+    const ADVANCED = {
+      cn: [
+        ['displayName', 'text'],
+        ['maxSessions', 'number'],
+        ['modelCacheTtlSeconds', 'number'],
+        ['defaultReasoningEffort', 'text'],
+        ['defaultMaxTokens', 'number'],
+        ['toolResultTimeoutSeconds', 'number'],
+        ['catalogFetchTimeoutSeconds', 'number'],
+        ['abortGraceSeconds', 'number'],
+        ['coldMaxTurns', 'number'],
+        ['modelAliases', 'json'],
+      ],
+      // The shared scalars above already have a home on the CN page; the intl
+      // page only adds what is specific to that edition, so the same setting is
+      // never edited in two places with two different values.
+      global: [
+        ['intlDisplayName', 'text'],
+        ['intlModelAliases', 'json'],
+      ],
+    }
+
+    /**
+     * One settings section per edition.
+     *
+     * They share the page component and the API routes; only the config keys,
+     * the API brand and the copy differ. Keeping them as two registered
+     * sections (rather than tabs inside one) means the shell's nav points a
+     * user straight at the account they care about.
+     */
+    const BRANDS = [
+      {
+        id: 'cn',
+        settingsId: 'qoder-cn',
+        order: 36,
+        titleKey: 'title',
+        navKey: 'nav',
+        introKey: 'intro',
+        noModelsKey: 'noModels',
+        cliGroupKey: 'cliGroup',
+        cliHintKey: 'cliHint',
+        fields: {
+          enabled: 'cnEnabled',
+          disabled: 'disabledModels',
+          windows: 'modelContextWindows',
+        },
+      },
+      {
+        id: 'global',
+        settingsId: 'qoder-intl',
+        order: 37,
+        titleKey: 'intlTitle',
+        navKey: 'intlNav',
+        introKey: 'intlIntro',
+        noModelsKey: 'intlNoModels',
+        cliGroupKey: 'intlCliGroup',
+        cliHintKey: 'intlCliHint',
+        fields: {
+          enabled: 'intlEnabled',
+          disabled: 'intlDisabledModels',
+          windows: 'intlModelContextWindows',
+        },
+      },
     ]
 
     const css = {
@@ -194,6 +328,22 @@ window.__ModuleLoader__.load({
       advLabel: { fontSize: '0.88em' },
       h3: { margin: 0, fontSize: '0.95em' },
       log: { margin: '0', maxHeight: '240px', overflowY: 'auto', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.25))', background: 'var(--dsw-alias-bg-base, rgba(128,128,128,0.05))', fontFamily: 'ui-monospace, monospace', fontSize: '0.76em', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
+      usageCard: { display: 'flex', flexDirection: 'column', gap: '10px', padding: '14px 16px', borderRadius: '10px', border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.25))', background: 'var(--dsw-alias-bg-base, rgba(128,128,128,0.03))' },
+      usageHead: { display: 'flex', alignItems: 'baseline', gap: '10px', flexWrap: 'wrap' },
+      usagePct: { marginLeft: 'auto', fontSize: '0.9em', fontWeight: 600 },
+      progressOuter: { height: '8px', borderRadius: '999px', background: 'var(--dsw-alias-border-l2, rgba(128,128,128,0.22))', overflow: 'hidden' },
+      progressInner: { height: '100%', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary, #4c6ef5)', transition: 'width .25s ease' },
+      progressDanger: { background: 'var(--dsw-alias-label-danger, #e03131)' },
+      usageLine: { display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', fontSize: '0.86em' },
+      usageLabel: { opacity: 0.62, minWidth: '72px' },
+      usageValue: { fontWeight: 500 },
+      link: { color: 'var(--dsw-alias-brand-primary, #4c6ef5)', textDecoration: 'none', fontSize: '0.86em' },
+      usageFoot: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', fontSize: '0.8em', opacity: 0.6 },
+      optionRow: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderTop: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.15))' },
+      optionFirst: { borderTop: 'none', paddingTop: 0 },
+      optionText: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' },
+      optionName: { fontSize: '0.92em', fontWeight: 500 },
+      optionStatus: { fontSize: '0.82em', opacity: 0.62 },
     }
 
     /**
@@ -203,6 +353,48 @@ window.__ModuleLoader__.load({
     const API = (() => {
       try { return new URL('api/llm-qoder-cn', document.baseURI).pathname } catch { return '/api/llm-qoder-cn' }
     })()
+
+    /**
+     * Last successful answer per edition, so reopening a settings page paints
+     * the previous content immediately and refreshes behind it.
+     *
+     * The cache is deliberately stale-while-revalidate: the page never waits on
+     * the CLI just to show something it showed a minute ago. Both the model list
+     * and the quota reading are cached separately because they are fetched by
+     * different cards. `localStorage` keeps the snapshot across a page reload;
+     * the in-memory map covers a deployment where storage is unavailable.
+     */
+    const CACHE_PREFIX = 'dsh-qoder-link/cache/v1'
+    const cacheMemory = new Map()
+
+    function cacheKey(brand, kind) {
+      return `${CACHE_PREFIX}:${brand}:${kind}`
+    }
+
+    function readCache(brand, kind) {
+      const key = cacheKey(brand, kind)
+      const held = cacheMemory.get(key)
+      if (held !== undefined) return held
+      try {
+        const raw = window.localStorage.getItem(key)
+        if (raw === null) return undefined
+        const parsed = JSON.parse(raw)
+        cacheMemory.set(key, parsed)
+        return parsed
+      } catch {
+        return undefined
+      }
+    }
+
+    function writeCache(brand, kind, value) {
+      const key = cacheKey(brand, kind)
+      cacheMemory.set(key, value)
+      try {
+        window.localStorage.setItem(key, JSON.stringify(value))
+      } catch {
+        /* private mode or a full quota: the in-memory copy still works */
+      }
+    }
 
     /** Call the plugin's model API. */
     async function api(path, options) {
@@ -264,6 +456,173 @@ window.__ModuleLoader__.load({
       return `x${Number(factor.toFixed(4))}`
     }
 
+    /** A 0–100 percentage, clamped, or undefined when the value is not a number. */
+    function percentOf(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+      return Math.max(0, Math.min(100, value))
+    }
+
+    /** A credit count with group separators; dashes for absent values. */
+    function creditsOf(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+      return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    }
+
+    /**
+     * Whether a timestamp means "no expiry".
+     *
+     * The quota endpoint reports plan end dates as a sentinel far in the future
+     * (year 9999). Rendering that as a date is technically true and practically
+     * noise, so it is shown as "never".
+     */
+    function neverExpires(ms) {
+      return typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0 || ms > Date.now() + 50 * 365 * 24 * 3600 * 1000
+    }
+
+    /** A short local date for an epoch-millisecond value. */
+    function dateLabel(ms) {
+      try { return new Date(ms).toLocaleDateString('zh-CN') } catch { return String(ms) }
+    }
+
+    /**
+     * One quota bucket as a line: label, `remaining / total`, percentage.
+     *
+     * Both editions quote the same shape (`userQuota`, `addOnQuota`,
+     * `orgResourcePackage`), so the three render through one function; a bucket
+     * the account does not have is simply not passed in.
+     */
+    function QuotaLine({ t, label, bucket, fallbackUnit }) {
+      if (bucket === undefined || bucket === null) return null
+      const total = bucket.total ?? bucket.cap
+      const remaining = bucket.remaining
+      const used = bucket.used
+      // A plan bucket the account does not have is reported as all zeros; an
+      // empty line describes nothing, so it is omitted rather than rendered.
+      if ((total === undefined || total === 0) && remaining === undefined) return null
+      const pct = percentOf(bucket.percentage)
+      const unit = bucket.unit ?? fallbackUnit ?? t('usageCredits')
+      const amount = remaining !== undefined && total !== undefined
+        ? `${t('usageRemaining')} ${creditsOf(remaining)} ${t('usageOf')} ${creditsOf(total)} ${unit}`
+        : total !== undefined
+          ? `${t('usageUsed')} ${creditsOf(used)} ${t('usageOf')} ${creditsOf(total)} ${unit}`
+          : '—'
+      return h('div', { style: css.usageLine },
+        h('span', { style: css.usageLabel }, label),
+        h('span', { style: css.usageValue }, amount),
+        pct === undefined ? null : h('span', { style: { opacity: 0.55 } }, `${Number(pct.toFixed(1))}%`),
+      )
+    }
+
+    /**
+     * Account quota and usage, read through the CLI.
+     *
+     * This is the same data the Qoder clients show on their account panel: plan,
+     * percentage used, remaining credits, add-on package, expiry and the
+     * upgrade/usage links. It is fetched from the host (which asks the CLI), not
+     * from the provider directly, because only the CLI holds a usable token.
+     */
+    function UsageCard({ t, brand, refreshSignal }) {
+      const [snapshot, setSnapshot] = useState(() => readCache(brand.id, 'usage'))
+      const [failure, setFailure] = useState(undefined)
+      const [busy, setBusy] = useState(false)
+      const ticket = useRef(0)
+
+      const load = useCallback(async (fresh = false) => {
+        const mine = ++ticket.current
+        setBusy(true)
+        setFailure(undefined)
+        try {
+          const payload = await api(`/usage?brand=${brand.id}${fresh ? '&fresh=1' : ''}`, { timeout: 45_000 })
+          if (mine !== ticket.current) return
+          // A failed account lookup (signed out, endpoint down) must not replace
+          // the last good reading with an empty card: keep it and say so.
+          if (payload?.usage === undefined && payload?.error !== undefined) {
+            setFailure(String(payload.error))
+            return
+          }
+          setSnapshot(payload)
+          writeCache(brand.id, 'usage', payload)
+        } catch (err) {
+          if (mine !== ticket.current) return
+          setFailure(String(err?.message ?? err))
+        } finally {
+          if (mine === ticket.current) setBusy(false)
+        }
+      }, [brand.id])
+
+      // `refreshSignal` changes after a CLI install or uninstall, both of which
+      // make the cached account reading describe a machine state that is gone.
+      useEffect(() => { void load() }, [load, refreshSignal])
+
+      const usage = snapshot?.usage
+      const account = snapshot?.account
+      const error = failure ?? (snapshot?.usage === undefined && snapshot?.error !== undefined ? String(snapshot.error) : undefined)
+      const pct = percentOf(usage?.totalUsagePercentage)
+      const plan = account?.subscriptionType ?? usage?.userType ?? t('usageUnknownPlan')
+      const identity = account?.name ?? account?.email ?? usage?.userId
+      const exceeded = usage?.isQuotaExceeded === true
+
+      const head = h('div', { style: css.usageHead },
+        h('h3', { style: css.h3 }, t('usageTitle')),
+        identity === undefined
+          ? null
+          : h('span', { style: { ...css.note, opacity: 0.7 } }, `${t('usageAccount')} ${identity}`),
+        h('button', {
+          style: { ...css.btn, marginLeft: 'auto' },
+          disabled: busy,
+          onClick: () => void load(true),
+        }, busy ? t('refreshing') : t('usageRefresh')),
+      )
+
+      if (snapshot === undefined || usage === undefined) {
+        return h('div', { style: css.usageCard },
+          head,
+          error === undefined
+            ? h('div', { style: css.note }, t('usageLoading'))
+            : h('div', { style: css.err }, `${t('usageUnavailable')}：${error}`),
+          error === undefined
+            ? null
+            : h('div', { style: css.bar },
+                h('button', { style: css.btn, disabled: busy, onClick: () => void load(true) }, t('usageRetry')),
+              ),
+        )
+      }
+
+      const expiry = usage?.expiresAt
+      return h('div', { style: css.usageCard },
+        head,
+        h('div', { style: css.usageLine },
+          h('span', { style: css.usageLabel }, t('usagePlan')),
+          h('span', { style: css.usageValue }, plan),
+          exceeded ? h('span', { style: { ...css.err, fontWeight: 600 } }, t('usageExceeded')) : null,
+          pct === undefined ? null : h('span', { style: css.usagePct }, `${Number(pct.toFixed(1))}%`),
+        ),
+        pct === undefined ? null : h('div', { style: css.progressOuter },
+          h('div', {
+            style: { ...css.progressInner, width: `${pct}%`, ...(exceeded ? css.progressDanger : {}) },
+          }),
+        ),
+        h(QuotaLine, { t, label: t('usagePlanQuota'), bucket: usage?.userQuota }),
+        h(QuotaLine, { t, label: t('usageAddOn'), bucket: usage?.addOnQuota }),
+        h(QuotaLine, { t, label: t('usageOrgPackage'), bucket: usage?.orgResourcePackage }),
+        h('div', { style: css.usageFoot },
+          expiry === undefined || neverExpires(expiry)
+            ? h('span', null, `${t('usageExpires')} ${t('usageNever')}`)
+            : h('span', null, `${t('usageExpires')} ${dateLabel(expiry)}`),
+          snapshot?.at === undefined ? null : h('span', null, `${t('usageUpdated')} ${new Date(snapshot.at).toLocaleTimeString('zh-CN')}`),
+          typeof usage?.addOnQuota?.detailUrl === 'string'
+            ? h('a', { href: usage.addOnQuota.detailUrl, target: '_blank', rel: 'noreferrer', style: css.link }, t('usageDetail'))
+            : null,
+          typeof usage?.upgradeUrl === 'string' && usage.upgradeUrl !== ''
+            ? h('a', { href: usage.upgradeUrl, target: '_blank', rel: 'noreferrer', style: css.link }, t('usageUpgrade'))
+            : null,
+          failure === undefined
+            ? null
+            : h('span', { style: css.err }, `${t('usageStale')}：${failure}`),
+        ),
+      )
+    }
+
     /**
      * The model table plus the advanced block.
      *
@@ -272,14 +631,18 @@ window.__ModuleLoader__.load({
      * A per-request ticket keeps a slow earlier answer from overwriting a newer
      * one when the user clicks quickly.
      */
-    function SettingsPage({ ctx, t }) {
-      const [models, setModels] = useState(undefined)
+    function SettingsPage({ ctx, t, brand }) {
+      const cached = readCache(brand.id, 'models')
+      const [models, setModels] = useState(() => Array.isArray(cached?.rows) ? cached.rows : undefined)
+      const [catalogNotice, setCatalogNotice] = useState(() =>
+        typeof cached?.notice === 'string' ? cached.notice : undefined)
       const [error, setError] = useState(undefined)
       const [status, setStatus] = useState(undefined)
       const [busy, setBusy] = useState(false)
       const [query, setQuery] = useState('')
       const [onlyEnabled, setOnlyEnabled] = useState(false)
       const [showAdvanced, setShowAdvanced] = useState(false)
+      const [usageTick, setUsageTick] = useState(0)
       const ticket = useRef(0)
       /** Separate from `ticket`: `load()` bumps that one, so sharing it would
        *  make every write look stale the moment its own refresh landed. */
@@ -297,24 +660,34 @@ window.__ModuleLoader__.load({
       useEffect(() => { describeFace.ensure().catch(() => undefined) }, [describeFace])
 
       const fetchModels = useCallback(async (fresh = false) => {
-        const payload = await api(`/models${fresh ? '?fresh=1' : ''}`)
-        return Array.isArray(payload?.models) ? payload.models : []
-      }, [])
+        const payload = await api(`/models?brand=${brand.id}${fresh ? '&fresh=1' : ''}`)
+        return {
+          rows: Array.isArray(payload?.models) ? payload.models : [],
+          notice: typeof payload?.notice === 'string' ? payload.notice : undefined,
+        }
+      }, [brand.id])
+
+      /** Adopt one read and remember it for the next visit to this page. */
+      const adopt = useCallback((rows, notice) => {
+        setModels(rows)
+        setCatalogNotice(notice)
+        writeCache(brand.id, 'models', { rows, notice, at: Date.now() })
+      }, [brand.id])
 
       /** Read the list. `fresh` asks the host to drop its catalog cache first. */
       const load = useCallback(async (fresh = false) => {
         setError(undefined)
         const mine = ++ticket.current
         try {
-          const rows = await fetchModels(fresh)
+          const { rows, notice } = await fetchModels(fresh)
           if (mine !== ticket.current) return
-          setModels(rows)
+          adopt(rows, notice)
         } catch (err) {
           if (mine !== ticket.current) return
           setError(String(err?.message ?? err))
           setModels(previous => previous ?? [])
         }
-      }, [fetchModels])
+      }, [adopt, fetchModels])
 
       useEffect(() => { void load() }, [load])
 
@@ -336,17 +709,18 @@ window.__ModuleLoader__.load({
         let rows
         for (let attempt = 0; attempt < attempts; attempt++) {
           try {
-            rows = await fetchModels()
+            const read = await fetchModels()
+            rows = read.rows
+            adopt(rows, read.notice)
           } catch (err) {
             setError(String(err?.message ?? err))
             return undefined
           }
-          setModels(rows)
           if (verify === undefined || verify(rows)) return rows
           await new Promise(resolve => setTimeout(resolve, 120 + attempt * 120))
         }
         return rows
-      }, [fetchModels])
+      }, [adopt, fetchModels])
 
       /**
        * Apply one change through the shared config form, then re-read until the
@@ -408,8 +782,8 @@ window.__ModuleLoader__.load({
         if (enabled) next.delete(id)
         else next.add(id)
         setModels(current => current?.map(m => m.id === id ? { ...m, enabled } : m))
-        return write('disabledModels', [...next], list => list.some(m => m.id === id && m.enabled === enabled))
-      }, [write])
+        return write(brand.fields.disabled, [...next], list => list.some(m => m.id === id && m.enabled === enabled))
+      }, [brand.fields.disabled, write])
 
       /** Write the whole per-model window map, again showing the choice at once. */
       const writeWindow = useCallback((rows, id, window) => {
@@ -421,12 +795,12 @@ window.__ModuleLoader__.load({
           ? { ...m, override: window, contextWindow: window ?? m.defaultContextWindow }
           : m))
         return write(
-          'modelContextWindows',
+          brand.fields.windows,
           next,
           list => list.some(m => m.id === id
             && (window === undefined ? m.override === undefined : m.override === window)),
         )
-      }, [write])
+      }, [brand.fields.windows, write])
 
       /**
        * Flip every model at once.
@@ -438,11 +812,11 @@ window.__ModuleLoader__.load({
         const ids = (models ?? []).map(m => m.id)
         setModels(current => current?.map(m => ({ ...m, enabled })))
         return write(
-          'disabledModels',
+          brand.fields.disabled,
           enabled ? [] : ids,
           list => list.every(m => m.enabled === enabled),
         )
-      }, [models, write])
+      }, [brand.fields.disabled, models, write])
 
       // ── CLI helper ────────────────────────────────────────────────────────
       // The host runs the script, so the page only asks and then reads what it
@@ -456,11 +830,11 @@ window.__ModuleLoader__.load({
 
       const pollSetup = useCallback(async () => {
         try {
-          setSetup(await api('/setup', { timeout: 10_000 }))
+          setSetup(await api(`/setup?brand=${brand.id}`, { timeout: 10_000 }))
         } catch {
           /* no run to report, or a host without the route */
         }
-      }, [])
+      }, [brand.id])
 
       const startCliSetup = useCallback(async (mode) => {
         setSetupError(undefined)
@@ -468,13 +842,13 @@ window.__ModuleLoader__.load({
           setSetup(await api('/setup', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ mode }),
+            body: JSON.stringify({ brand: brand.id, mode }),
             timeout: 15_000,
           }))
         } catch (err) {
           setSetupError(`${t('cliStartFailed')}：${String(err?.message ?? err)}`)
         }
-      }, [t])
+      }, [brand.id, t])
 
       const setupRunning = setup?.running === true
       const setupCode = setup !== undefined && setup.running === false ? setup.code : undefined
@@ -504,12 +878,21 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(timer)
       }, [setupRunning, setupFinishedAt])
 
-      // The catalog is read from the CLI, so a helper that just installed or
-      // signed into it changes what the list should show — and the host has
-      // already dropped its cached answer for that case.
+      // The catalog is read from the CLI, so a helper that just installed,
+      // signed into, or removed it changes what the list and quota should show —
+      // and the host has already dropped its cached answers for that case.
       useEffect(() => {
-        if (setupCode === 0) void load(true)
-      }, [setupCode, load])
+        if (setupCode !== 0) return
+        void load(true)
+        setUsageTick(value => value + 1)
+      }, [setupCode, setupFinishedAt, load])
+
+      /** Ask before running the destructive CLI action. */
+      const uninstallCli = useCallback(() => {
+        if (typeof window.confirm !== 'function') return
+        if (!window.confirm(t('cliUninstallConfirm'))) return
+        void startCliSetup('uninstall')
+      }, [startCliSetup, t])
 
       useEffect(() => {
         const node = logRef.current
@@ -536,7 +919,7 @@ window.__ModuleLoader__.load({
        * the helper and offering to run it beats a grey sentence nobody reads.
        */
       const renderGuide = () => h('div', { style: css.guide },
-        h('div', { style: css.guideText }, t('noModels')),
+        h('div', { style: css.guideText }, t(brand.noModelsKey)),
         h('button', {
           style: { ...css.btn, ...css.btnAlert },
           disabled: setupRunning,
@@ -546,7 +929,7 @@ window.__ModuleLoader__.load({
 
       if (models === undefined) {
         return h('div', { style: css.page },
-          h('h2', { style: css.h2 }, t('title')),
+          h('h2', { style: css.h2 }, t(brand.titleKey)),
           error === undefined
             ? h('div', { style: css.note }, t('loading'))
             : h('div', null,
@@ -599,14 +982,16 @@ window.__ModuleLoader__.load({
 
       const advanced = buildAdvanced({
         t, form, snapshot,
+        fields: ADVANCED[brand.id],
         namespace: describeSnapshot.view?.namespaces?.find(n => n.ns === NS),
         show: showAdvanced,
         onToggle: () => setShowAdvanced(value => !value),
       })
 
       return h('div', { style: css.page },
-        h('h2', { style: css.h2 }, t('title')),
-        h('p', { style: css.intro }, t('intro')),
+        h('h2', { style: css.h2 }, t(brand.titleKey)),
+        h('p', { style: css.intro }, t(brand.introKey)),
+        h(UsageCard, { t, brand, refreshSignal: usageTick }),
 
         // Search row: the field grows, the checkbox sits beside it.
         h('div', { style: css.bar },
@@ -644,25 +1029,27 @@ window.__ModuleLoader__.load({
           ? renderGuide()
           : h('div', { style: css.list }, rows.length > 0 ? rows : h('div', { style: { ...css.note, padding: '12px 14px' } }, '—')),
 
+        catalogNotice !== undefined ? h('div', { style: css.note }, catalogNotice) : null,
         all.length > 0 ? h('div', { style: css.note }, t('windowWarn')) : null,
         error !== undefined ? h('div', { style: css.err }, error) : null,
         status !== undefined && error === undefined ? h('div', { style: css.note }, status) : null,
 
         h('div', { style: css.group },
-          h('h3', { style: css.h3 }, t('cliGroup')),
-          h('div', { style: css.note }, t('cliHint')),
+          h('h3', { style: css.h3 }, t(brand.cliGroupKey)),
+          h('div', { style: css.note }, t(brand.cliHintKey)),
           h('div', { style: { ...css.bar, flexWrap: 'nowrap' } },
             h('button', { style: css.btn, disabled: setupRunning, onClick: () => void startCliSetup('configure') }, t('cliRun')),
             h('button', { style: css.btn, disabled: setupRunning, onClick: () => void startCliSetup('login') }, t('cliLogin')),
+            h('button', { style: { ...css.btn, ...css.btnAlert }, disabled: setupRunning, onClick: uninstallCli }, t('cliUninstall')),
             setupLines.length > 0 && !setupRunning
               ? h('button', { style: css.btn, onClick: () => setLogOpen(value => !value) }, logOpen ? t('cliHideLog') : t('cliShowLog'))
               : null,
             h('span', { style: css.count }, setupRunning
-              ? t('cliRunning')
+              ? (setup?.mode === 'uninstall' ? t('cliUninstalling') : t('cliRunning'))
               : setupError !== undefined
                 ? setupError
                 : setupCode === 0
-                  ? t('cliExitOk')
+                  ? (setup?.mode === 'uninstall' ? t('cliUninstallOk') : t('cliExitOk'))
                   : setupCode === undefined || setupCode === null
                     ? ''
                     : `${t('cliExitFail')} ${setupCode}`),
@@ -677,10 +1064,90 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The two edition switches, contributed to this bundle's page in the plugin
+     * manager (`plugins.bundle.config`).
+     *
+     * They live here rather than on either settings page because they decide
+     * whether those pages exist at all: a page cannot own the switch that
+     * removes it. The write goes through the shared config form, so it uses the
+     * same revision fence as every other setting.
+     */
+    function BundleSettings({ ctx, t, view }) {
+      const form = ctx.configForms.get(NS)
+      const subscribe = useCallback(listener => form.subscribe(listener), [form])
+      const read = useCallback(() => form.getSnapshot(), [form])
+      const snapshot = useSyncExternalStore(subscribe, read)
+      const value = snapshot?.value ?? {}
+      const writable = snapshot?.writable !== false
+      const [busy, setBusy] = useState(false)
+      const [status, setStatus] = useState(undefined)
+      const [error, setError] = useState(undefined)
+      const writeTicket = useRef(0)
+
+      const toggle = useCallback(async (key, next) => {
+        const mine = ++writeTicket.current
+        setBusy(true)
+        setStatus(t('saving'))
+        setError(undefined)
+        try {
+          const accepted = await withDeadline(form.set(key, next), WRITE_TIMEOUT_MS, t('timeout'))
+          if (accepted === false) throw new Error(t('pluginOptionsRejected'))
+          if (mine === writeTicket.current) setStatus(t('saved'))
+        } catch (err) {
+          if (mine !== writeTicket.current) return
+          setError(`${t('saveFailed')}：${String(err?.message ?? err)}`)
+          setStatus(undefined)
+        } finally {
+          if (mine === writeTicket.current) setBusy(false)
+        }
+      }, [form, t])
+
+      if (view !== undefined && view !== 'page') {
+        const names = BRANDS
+          .filter(brand => value[brand.fields.enabled] !== false)
+          .map(brand => brand.id === 'cn' ? (value.displayName || t('nav')) : (value.intlDisplayName || t('intlNav')))
+        return h('span', null, names.join(' · '))
+      }
+
+      const rows = BRANDS.map((brand, index) => {
+        const enabled = value[brand.fields.enabled] !== false
+        const name = brand.id === 'cn'
+          ? (typeof value.displayName === 'string' && value.displayName !== '' ? value.displayName : t('nav'))
+          : (typeof value.intlDisplayName === 'string' && value.intlDisplayName !== '' ? value.intlDisplayName : t('intlNav'))
+        return h('div', {
+          key: brand.id,
+          style: { ...css.optionRow, ...(index === 0 ? css.optionFirst : {}) },
+        },
+          h('input', {
+            type: 'checkbox',
+            style: css.switch,
+            checked: enabled,
+            disabled: busy || !writable,
+            title: enabled ? t('pluginOptionsOn') : t('pluginOptionsOff'),
+            onChange: event => { void toggle(brand.fields.enabled, event.target.checked) },
+          }),
+          h('div', { style: css.optionText },
+            h('div', { style: css.optionName }, name),
+            h('div', { style: css.optionStatus }, enabled ? t('pluginOptionsOn') : t('pluginOptionsOff')),
+          ),
+        )
+      })
+
+      return h('div', { style: css.group },
+        h('h3', { style: css.h3 }, t('pluginOptionsTitle')),
+        h('div', { style: css.note }, t('pluginOptionsHint')),
+        rows,
+        !writable ? h('div', { style: css.note }, t('pluginOptionsReadOnly')) : null,
+        error !== undefined ? h('div', { style: css.err }, error) : null,
+        status !== undefined && error === undefined ? h('div', { style: css.note }, status) : null,
+      )
+    }
+
+    /**
      * The collapsed advanced block: the remaining scalars, rendered against the
      * host's schema so labels, bounds and defaults stay in one place.
      */
-    function buildAdvanced({ t, form, snapshot, namespace, show, onToggle }) {
+    function buildAdvanced({ t, form, snapshot, fields, namespace, show, onToggle }) {
       const header = h('div', { style: css.bar },
         h('button', { style: css.btn, onClick: onToggle }, show ? t('hide') : t('show')),
         h('span', { style: css.note }, t('advancedHint')),
@@ -703,7 +1170,7 @@ window.__ModuleLoader__.load({
         op.catch(() => undefined)
       }
 
-      const rows = ADVANCED.map(([key, kind]) => {
+      const rows = fields.map(([key, kind]) => {
         const node = refs?.[root?.dict?.[key]]
         if (node === undefined) return null
         const labels = t('advancedFields') ?? {}
@@ -760,23 +1227,73 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** Register the section; the shell renders it in the Settings nav. */
+    /**
+     * Register the sections that are currently switched on, and keep that set
+     * in step with the two edition switches.
+     *
+     * A section exists only while its edition does: the plugin page's switches
+     * decide whether the settings page, its models and its fields are offered at
+     * all. They cannot be registered unconditionally and hidden, because a
+     * registered `settings.section` is exactly what puts an entry in the nav.
+     */
     function apply(ctx) {
       const t = ctx.locale.bind(NS)
       ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'llm-qoder-cn: dictionaries')
-      ctx.effect(() => ctx.configForms.whileServed([NS], () => ctx.slots.inject('settings.section', () => ctx.slots.register({
-        name: 'settings.section',
-        id: 'qoder-cn',
-        order: 36,
-        label: () => t('nav'),
+
+      // The two switches live on this bundle's own page in the plugin manager.
+      // That page exists whether or not either edition is currently shown.
+      ctx.effect(() => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+        name: 'plugins.bundle.config',
+        key: 'dsh-qoder-link',
         locale: NS,
-      }, props => h(SettingsPage, { ...props, ctx, t })))), 'llm-qoder-cn: page')
+      }, props => h(BundleSettings, { ...props, ctx, t }))), 'llm-qoder-cn: bundle options')
+
+      ctx.effect(() => ctx.configForms.whileServed([NS], () => {
+        const form = ctx.configForms.get(NS)
+        const live = new Map()
+
+        const sync = () => {
+          const snapshot = form.getSnapshot()
+          // Wait for the stored config before deciding what to show. Registering
+          // optimistically would flash a page the user already switched off.
+          if (snapshot.status !== 'ready') return
+          const value = snapshot.value ?? {}
+          for (const brand of BRANDS) {
+            const enabled = value[brand.fields.enabled] !== false
+            const current = live.get(brand.id)
+            if (enabled && current === undefined) {
+              live.set(brand.id, ctx.slots.inject('settings.section', () => ctx.slots.register({
+                name: 'settings.section',
+                id: brand.settingsId,
+                order: brand.order,
+                label: () => t(brand.navKey),
+                locale: NS,
+              }, props => h(SettingsPage, { ...props, ctx, t, brand }))))
+            } else if (!enabled && current !== undefined) {
+              current()
+              live.delete(brand.id)
+            }
+          }
+        }
+
+        const unsubscribe = form.subscribe(sync)
+        sync()
+        return () => {
+          unsubscribe()
+          for (const off of live.values()) off()
+          live.clear()
+        }
+      }), 'llm-qoder-cn: pages')
     }
 
     exports.apply = apply
     exports.inject = inject
     exports.name = 'dsh-qoder-link'
-    exports.__test = { windowLabel, priceSuffix, ADVANCED, zh, en }
+    exports.__test = {
+      windowLabel, priceSuffix, ADVANCED, BRANDS, zh, en,
+      SettingsPage, BundleSettings, UsageCard, QuotaLine, creditsOf, neverExpires,
+      readCache, writeCache,
+    }
     return module.exports
   },
 })

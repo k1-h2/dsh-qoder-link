@@ -30,6 +30,18 @@ import z from '@deepseek-ai/schemastery'
  * DSH inserts by default — runs with the tuned defaults below.
  */
 export interface Config {
+  // ── Editions: which settings pages exist ────────────────────────────────
+  /**
+   * Whether the Qoder CN edition is served at all.
+   *
+   * Off removes its provider route, its model group and its settings page. The
+   * per-model choices are kept, so switching it back on restores the previous
+   * configuration rather than resetting it.
+   */
+  cnEnabled?: boolean
+  /** Whether the international edition is served; same semantics as {@link cnEnabled}. */
+  intlEnabled?: boolean
+
   // ── Models: the only settings most users touch ──────────────────────────
   /**
    * Model ids the user switched OFF in the settings page.
@@ -56,6 +68,28 @@ export interface Config {
    * merged over the built-in `deepseek-v4-*` ones.
    */
   modelAliases?: Record<string, string>
+
+  // ── International edition ───────────────────────────────────────────────
+  /**
+   * Model ids the user switched OFF for the international edition.
+   *
+   * A separate list from the CN one on purpose: the two plans publish different
+   * catalogs, and a shared deny-list would hide a model on one side because the
+   * user happened to switch an unrelated id off on the other.
+   */
+  intlDisabledModels?: string[]
+  /**
+   * Per-model context window for the international edition, keyed by model id.
+   */
+  intlModelContextWindows?: Record<string, number>
+  /**
+   * Extra model aliases for the international edition.
+   */
+  intlModelAliases?: Record<string, string>
+  /**
+   * Display name of the international provider group in the model picker.
+   */
+  intlDisplayName?: string
 
   // ── Advanced: sensible defaults, rarely changed ─────────────────────────
   /**
@@ -134,12 +168,22 @@ export interface Config {
  * `src/live.ts` for the full mechanism.
  */
 export const Config = z.object({
+  // ── 版本开关：控制哪个设置页与模型分组存在 ─────────────────────────────
+  cnEnabled: z.boolean().default(true).description('启用 Qoder CN。关闭后该设置页、模型列表与 provider 路由都会移除；已保存的模型选择会保留。').volatile(),
+  intlEnabled: z.boolean().default(true).description('启用 Qoder 国际版。关闭后该设置页、模型列表与 provider 路由都会移除；已保存的模型选择会保留。').volatile(),
+
   // ── Models: the only settings most users touch ──────────────────────────
   // These two are the model page's data source. The settings page renders the
   // live catalog with a switch per model and a window choice per model, and
   // writes back through these fields.
   disabledModels: z.array(z.string()).default([]).description('已关闭的模型 ID 列表（以 Qoder 模型 ID 为准）。关闭的模型不会出现在模型选择器里。').volatile(),
   modelContextWindows: z.dict(z.number()).default({}).description('按模型指定上下文窗口（token 数）。未指定的模型使用上游声明的窗口。').volatile(),
+
+  // ── 国际版：与 CN 账户独立 ─────────────────────────────────────────────
+  intlDisabledModels: z.array(z.string()).default([]).description('国际版已关闭的模型 ID 列表。与 CN 列表分开，因为两边的模型目录不同。').volatile(),
+  intlModelContextWindows: z.dict(z.number()).default({}).description('国际版按模型指定的上下文窗口（token 数）。').volatile(),
+  intlModelAliases: z.dict(z.string()).default({}).description('国际版额外的模型别名映射：DSH 侧名称 → Qoder 模型 ID。').volatile(),
+  intlDisplayName: z.string().default('Qoder 国际版').description('模型选择器里国际版分组的名称。').volatile(),
 
   // ── 高级：一般无需改动 ─────────────────────────────────────────────────
   displayName: z.string().default('Qoder CN').description('模型选择器里主分组的名称。同时使用多个 Qoder 账号时可区分。').volatile(),
@@ -156,6 +200,8 @@ export const Config = z.object({
 
 /** Fully-resolved options with every default applied. */
 export interface ResolvedConfig {
+  cnEnabled: boolean
+  intlEnabled: boolean
   displayName: string
   maxSessions: number
   modelCacheTtlMs: number
@@ -168,6 +214,10 @@ export interface ResolvedConfig {
   modelContextWindows: Readonly<Record<string, number>>
   modelAliases: Readonly<Record<string, string>>
   defaultReasoningEffort: string | undefined
+  intlDisplayName: string
+  intlDisabledModels: readonly string[]
+  intlModelContextWindows: Readonly<Record<string, number>>
+  intlModelAliases: Readonly<Record<string, string>>
 }
 
 /**
@@ -216,6 +266,8 @@ export function liveConfig(config: ParsedConfig | undefined): LiveConfig {
   }
 
   return {
+    cnEnabled: () => bool(field('cnEnabled'), true),
+    intlEnabled: () => bool(field('intlEnabled'), true),
     displayName: () => nonEmpty(field('displayName'), 'Qoder CN'),
     maxSessions: () => positive(field('maxSessions'), 8),
     modelCacheTtlMs: () => positive(field('modelCacheTtlSeconds'), 300) * 1_000,
@@ -232,6 +284,10 @@ export function liveConfig(config: ParsedConfig | undefined): LiveConfig {
       const effort = typeof raw === 'string' ? raw.trim() : ''
       return effort.length > 0 ? effort : undefined
     },
+    intlDisplayName: () => nonEmpty(field('intlDisplayName'), 'Qoder 国际版'),
+    intlDisabledModels: () => stringList(field('intlDisabledModels')),
+    intlModelContextWindows: () => numberMap(field('intlModelContextWindows')),
+    intlModelAliases: () => stringMap(field('intlModelAliases')),
   }
 }
 
@@ -249,6 +305,8 @@ export function liveConfig(config: ParsedConfig | undefined): LiveConfig {
 export function resolveConfig(config: ParsedConfig | undefined): ResolvedConfig {
   const live = liveConfig(config)
   return {
+    cnEnabled: live.cnEnabled(),
+    intlEnabled: live.intlEnabled(),
     displayName: live.displayName(),
     maxSessions: live.maxSessions(),
     modelCacheTtlMs: live.modelCacheTtlMs(),
@@ -261,6 +319,10 @@ export function resolveConfig(config: ParsedConfig | undefined): ResolvedConfig 
     modelContextWindows: live.modelContextWindows(),
     modelAliases: live.modelAliases(),
     defaultReasoningEffort: live.defaultReasoningEffort(),
+    intlDisplayName: live.intlDisplayName(),
+    intlDisabledModels: live.intlDisabledModels(),
+    intlModelContextWindows: live.intlModelContextWindows(),
+    intlModelAliases: live.intlModelAliases(),
   }
 }
 
@@ -270,6 +332,11 @@ function nonEmpty(value: unknown, fallback: string): string {
 
 function positive(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+/** A boolean with a default for a value the form has not supplied yet. */
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
 }
 
 function stringList(value: unknown): readonly string[] {

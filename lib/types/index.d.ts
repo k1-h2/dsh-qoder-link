@@ -1,14 +1,17 @@
 /**
- * Register {@link QoderAdapter} for the `qoder-cn` provider
- * routes on `ctx.llm`, backed by the official Qoder CN Agent SDK
- * (`@qodercn-ai/qodercn-agent-sdk`).
+ * Register a {@link QoderAdapter} for each subscription edition on `ctx.llm`:
+ * `qoder-cn` backed by the official CN Agent SDK
+ * (`@qodercn-ai/qodercn-agent-sdk`) and `qoder-intl` backed by the
+ * international one (`@qoder-ai/qoder-agent-sdk`).
  *
- * The inner sessions ride on the local `qoderclicn` login state, so no API key
- * or credential entry is required: the account's model catalog is fetched live
- * from the CLI and split into the account's built-in models and its custom
- * ones. Everything a deployment may want to tune — session pool size, context
- * window, timeouts, model allow/deny lists, aliases — is declared in
- * {@link Config}, which DSH renders as this plugin's settings page.
+ * Each edition's inner sessions ride on its own local CLI login state
+ * (`qoderclicn` / `qodercli`), so no API key or credential entry is required:
+ * the account's model catalog is fetched live from that CLI and split into the
+ * account's built-in models and its custom ones. Everything a deployment may
+ * want to tune — session pool size, context window, timeouts, model allow/deny
+ * lists, aliases, and the same choices separately for the international
+ * edition — is declared in {@link Config}, which DSH renders as this plugin's
+ * settings pages.
  *
  * ## Settings edits apply without a restart, and that shapes this module
  *
@@ -60,8 +63,13 @@ declare module '@deepseek-ai/cordis' {
         'loader/volatile-update'(paths: readonly (readonly string[])[]): void;
     }
 }
-export { QoderAdapter, QODER_PROVIDER, cliContextWindow, pickContextWindow } from './adapter.ts';
+export { QoderAdapter, QODER_PROVIDER, QODER_INTL_PROVIDER, cliContextWindow, pickContextWindow } from './adapter.ts';
 export type { ImageRequestReader, QoderAdapterOptions } from './adapter.ts';
+export { BRANDS, CN_BRAND, GLOBAL_BRAND, brandProfile } from './brand.ts';
+export type { BrandProfile, QoderBrand } from './brand.ts';
+export { loadSdk } from './sdk.ts';
+export { QoderUsage, DEFAULT_USAGE_CACHE_TTL_MS, DEFAULT_USAGE_TIMEOUT_MS } from './usage.ts';
+export type { UsageSnapshot } from './usage.ts';
 export { QoderSession, QoderSessionManager, ToolResultPairing } from './session.ts';
 export type { SessionModelPolicy, SessionRuntimeOptions } from './session.ts';
 export { NARROW_CHARS_PER_TOKEN, WIDE_CHARS_PER_TOKEN, countWideChars, estimateTextTokens, isWideChar } from './tokens.ts';
@@ -87,8 +95,14 @@ export declare const inject: string[];
  * `settings.describe()` at all — see the note on {@link ConfigSchema}.
  */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<NoInfer<{
+    cnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
+    intlEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
     disabledModels: import("@deepseek-ai/schemastery").default<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     modelContextWindows: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlDisabledModels: import("@deepseek-ai/schemastery").default<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    intlModelContextWindows: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlModelAliases: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
+    intlDisplayName: import("@deepseek-ai/schemastery").default<string, string, "volatile-defined">;
     displayName: import("@deepseek-ai/schemastery").default<string, string, "volatile-defined">;
     maxSessions: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
     modelCacheTtlSeconds: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
@@ -100,8 +114,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     abortGraceSeconds: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
     coldMaxTurns: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
+    cnEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
+    intlEnabled: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
     disabledModels: import("@deepseek-ai/schemastery").default<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     modelContextWindows: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlDisabledModels: import("@deepseek-ai/schemastery").default<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    intlModelContextWindows: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlModelAliases: import("@deepseek-ai/schemastery").default<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
+    intlDisplayName: import("@deepseek-ai/schemastery").default<string, string, "volatile-defined">;
     displayName: import("@deepseek-ai/schemastery").default<string, string, "volatile-defined">;
     maxSessions: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
     modelCacheTtlSeconds: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;

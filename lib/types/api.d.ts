@@ -5,10 +5,20 @@
  * fetched live from the Qoder CLI, while the form only carries what the user
  * stored. So the host answers these JSON routes:
  *
- * - `GET <prefix>/models` — every model the account exposes, each with its
- *   enabled state, the window it will use, and the windows it may use.
- * - `GET <prefix>/setup` — state of the CLI helper run, including what it printed.
- * - `POST <prefix>/setup` — start that helper: `{"mode":"configure"|"login"}`.
+ * - `GET <prefix>/models?brand=cn|global` — every model that account exposes,
+ *   each with its enabled state, the window it will use, and the windows it may
+ *   use.
+ * - `GET <prefix>/usage?brand=cn|global[&fresh=1]` — the account's quota and
+ *   usage, as the Qoder clients display them.
+ * - `GET <prefix>/setup?brand=cn|global` — state of that edition's CLI helper
+ *   run, including what it printed.
+ * - `POST <prefix>/setup` — start that helper:
+ *   `{"brand":"cn"|"global","mode":"configure"|"login"}`.
+ *
+ * Both editions answer through the same routes because the page and the host
+ * are one origin; the `brand` parameter selects which adapter answers, and an
+ * unknown value is refused rather than defaulted, so a typo cannot silently
+ * read the other account's data.
  *
  * Config writes deliberately do NOT come through here. The browser half already
  * holds a revision-fenced form for this plugin's config namespace
@@ -22,6 +32,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { QoderAdapter } from './adapter.ts';
+import type { QoderBrand } from './brand.ts';
 /** Route prefix this plugin owns; the client resolves it relative to the page. */
 export declare const API_PREFIX = "/api/llm-qoder-cn";
 /** One model row as the page renders it. */
@@ -65,7 +76,7 @@ export declare function buildRows(adapter: QoderAdapter): Promise<ModelRow[]>;
  *
  * @param req - the incoming request.
  * @param res - the response this handler owns.
- * @param adapter - the adapter whose live catalog backs the list.
+ * @param adapters - one adapter per edition; `brand` selects which answers.
  */
-export declare function handleApi(req: IncomingMessage, res: ServerResponse, adapter: QoderAdapter): Promise<void>;
+export declare function handleApi(req: IncomingMessage, res: ServerResponse, adapters: Readonly<Record<QoderBrand, QoderAdapter>>): Promise<void>;
 export {};

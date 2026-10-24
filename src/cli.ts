@@ -1,5 +1,5 @@
 /**
- * Finding the local Qoder CLI, and the Node that has to run it.
+ * Finding the local Qoder CLI of one edition, and the Node that has to run it.
  *
  * The SDK's default transport runs its worker runtime on a Node worker thread,
  * which is a thread *inside* the DSH process. On Windows that puts the worker's
@@ -30,6 +30,8 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import * as path from 'node:path'
 import type { Options } from '@qodercn-ai/qodercn-agent-sdk'
+import type { QoderBrand } from './brand.ts'
+import { brandProfile } from './brand.ts'
 
 /** The query options that move a session onto the CLI's own process. */
 export type QoderCliOptions = Pick<Options, 'pathToQoderCLIExecutable' | 'executable' | 'env'>
@@ -83,34 +85,28 @@ export interface CliLookup {
   electron?: boolean
 }
 
-/** One scoped package a CLI build can be installed as. */
-interface CliPackage {
-  scope: string
-  name: string
-}
-
-/** The CN package this plugin is built on, and the INTL one a user may have. */
-const PACKAGES: readonly CliPackage[] = [
-  { scope: '@qodercn-ai', name: 'qoderclicn' },
-  { scope: '@qoder-ai', name: 'qodercli' },
-]
-
 /**
  * A CLI the SDK can spawn, or nothing when this machine offers none.
  *
  * Candidates are tried in the order a user's own shell would resolve them:
  * an explicit `QODERCLI_PATH` first, then the npm global roots, then the
- * native builds the SDK and the CLI's own installer place. A worker-runtime
- * module is skipped wherever it turns up, since the SDK answers such a path
- * with the in-process worker this module exists to avoid.
+ * native builds the SDK and the CLI's own installer place. Each brand only
+ * ever sees its own package and state directory — handing the CN SDK the intl
+ * CLI (or the other way round) would speak one edition's protocol to the other
+ * edition's account. A worker-runtime module is skipped wherever it turns up,
+ * since the SDK answers such a path with the in-process worker this module
+ * exists to avoid.
+ *
+ * @param brand - which edition's CLI to look for.
+ * @param lookup - the machine to inspect; defaults to this process's.
  */
-export function resolveQoderCli(lookup: CliLookup = {}): QoderCli | undefined {
+export function resolveQoderCli(brand: QoderBrand = 'cn', lookup: CliLookup = {}): QoderCli | undefined {
   const env = lookup.env ?? process.env
   const platform = lookup.platform ?? process.platform
   const exists = lookup.exists ?? existsSync
   const suffix = platform === 'win32' ? '.exe' : ''
   const node = resolveNode(lookup)
-  for (const candidate of candidates(env, suffix, node)) {
+  for (const candidate of candidates(brand, env, suffix, node)) {
     if (!exists(candidate) || isWorkerRuntime(candidate)) continue
     if (!isScript(candidate)) return { path: candidate }
     if (node !== undefined) return { path: candidate, nodeDir: path.dirname(node) }
@@ -123,9 +119,12 @@ export function resolveQoderCli(lookup: CliLookup = {}): QoderCli | undefined {
  *
  * Empty when no CLI was found: the caller spreads this into its options, so an
  * empty answer leaves the SDK's default transport in place.
+ *
+ * @param brand - which edition's CLI the session speaks to.
+ * @param lookup - the machine to inspect; defaults to this process's.
  */
-export function qoderCliOptions(lookup: CliLookup = {}): QoderCliOptions {
-  const cli = resolveQoderCli(lookup)
+export function qoderCliOptions(brand: QoderBrand = 'cn', lookup: CliLookup = {}): QoderCliOptions {
+  const cli = resolveQoderCli(brand, lookup)
   if (cli === undefined) return {}
   // The SDK reads `env` as the child's whole environment rather than a delta, so
   // every branch hands over the environment the CLI would have inherited anyway
@@ -147,30 +146,84 @@ export function qoderCliOptions(lookup: CliLookup = {}): QoderCliOptions {
   }
 }
 
+/**
+ * Whether a CLI path belongs to the other edition.
+ *
+ * `QODERCLI_PATH` predates the international edition and is set globally by
+ * some CN installs. Both SDKs read that one variable from the parent process
+ * before anything else, so an intl session would otherwise spawn the CN CLI and
+ * answer with the CN account. A path that names an edition is therefore never
+ * offered to the other one; a neutral custom build is still honoured for both.
+ */
+export function isForeignCliPath(brand: QoderBrand, candidate: string): boolean {
+  const text = candidate.replace(/\\/g, '/').toLowerCase()
+  const chinese = text.includes('qoderclicn') || text.includes('@qodercn-ai') || text.includes('/.qoder-cn/')
+  const global = !chinese
+    && (text.includes('@qoder-ai') || text.includes('/.qoder/') || /(^|[/_-])qodercli(\.exe|\.js|$)/.test(text))
+  return brand === 'global' ? chinese : global
+}
+
+/**
+ * A `QODERCLI_PATH` that names the other edition, when this one has no CLI.
+ *
+ * The SDKs read that variable from the parent process before any option this
+ * plugin can pass, so when it is foreign and this edition has nothing of its
+ * own, the only honest answer is a configuration error — spawning the other
+ * edition's CLI would answer with the other edition's account.
+ *
+ * @param brand - the edition the caller is about to start.
+ * @param lookup - the machine to inspect; defaults to this process's.
+ */
+export function foreignCliOverride(brand: QoderBrand, lookup: CliLookup = {}): string | undefined {
+  const env = lookup.env ?? process.env
+  const override = env.QODERCLI_PATH
+  if (override === undefined || override.length === 0) return undefined
+  if (!isForeignCliPath(brand, override)) return undefined
+  if (resolveQoderCli(brand, lookup) !== undefined) return undefined
+  return override
+}
+
+/**
+ * The error text for {@link foreignCliOverride}.
+ *
+ * Deliberately says nothing about the variable or the path that caused it: the
+ * page's job here is to tell the user which CLI to install, not to explain the
+ * plugin's environment plumbing. The technical reason stays in the lookup.
+ */
+export function cliConflictMessage(brand: QoderBrand): string {
+  const command = brandProfile(brand).cliCommands[0]
+  return `未检测到可用的 ${command}，请先安装并登录后再使用此版本。`
+}
+
 /** Paths the CLI may live at, most explicit first. */
-function candidates(env: NodeJS.ProcessEnv, suffix: string, nodePath: string | undefined): string[] {
+function candidates(brand: QoderBrand, env: NodeJS.ProcessEnv, suffix: string, nodePath: string | undefined): string[] {
+  const profile = brandProfile(brand)
   const found: string[] = []
   const push = (value: string | undefined): void => {
     if (value !== undefined && value.length > 0 && !found.includes(value)) found.push(value)
   }
-  push(env.QODERCLI_PATH)
+  // Brand-specific overrides first, then the shared one only when it does not
+  // name the other edition (see {@link isForeignCliPath}).
+  push(brand === 'cn' ? env.QODERCN_CLI_PATH : env.QODER_CLI_PATH)
+  if (env.QODERCLI_PATH !== undefined && !isForeignCliPath(brand, env.QODERCLI_PATH)) {
+    push(env.QODERCLI_PATH)
+  }
   for (const root of nodeModulesRoots(env, nodePath)) {
-    for (const pkg of PACKAGES) {
+    for (const pkg of profile.cliPackages) {
       const dir = path.join(root, pkg.scope, pkg.name)
       // npm's own global shim points at `bundle/`; a flat layout has no such dir.
       push(path.join(dir, 'bundle', `${pkg.name}.js`))
       push(path.join(dir, `${pkg.name}.js`))
     }
   }
-  const sdk = sdkDir()
+  const sdk = sdkDir(profile.sdkPackage)
   if (sdk !== undefined) {
-    for (const pkg of PACKAGES) push(path.join(sdk, 'dist', '_bundled', `${pkg.name}${suffix}`))
+    for (const pkg of profile.cliPackages) push(path.join(sdk, 'dist', '_bundled', `${pkg.name}${suffix}`))
   }
   // The CLI's own per-user install root, where its installer puts a native build.
   const home = env.QODER_CLI_HOME === undefined || env.QODER_CLI_HOME.length === 0 ? homedir() : env.QODER_CLI_HOME
-  for (const pkg of PACKAGES) {
-    push(path.join(home, '.qoder-cn', 'local', `${pkg.name}${suffix}`))
-    push(path.join(home, '.qoder', 'local', `${pkg.name}${suffix}`))
+  for (const pkg of profile.cliPackages) {
+    push(path.join(home, profile.configDirName, 'local', `${pkg.name}${suffix}`))
   }
   return found
 }
@@ -222,10 +275,15 @@ function resolveNode(lookup: CliLookup): string | undefined {
   return undefined
 }
 
-/** Directory of the installed SDK, for the native CLI build it may carry. */
-function sdkDir(): string | undefined {
+/**
+ * Directory of the installed SDK, for the native CLI build it may carry.
+ *
+ * The international package is optional, so a missing one answers undefined
+ * here rather than failing the lookup.
+ */
+function sdkDir(packageName: string): string | undefined {
   try {
-    return path.dirname(createRequire(import.meta.url).resolve('@qodercn-ai/qodercn-agent-sdk'))
+    return path.dirname(createRequire(import.meta.url).resolve(packageName))
   } catch {
     return undefined
   }

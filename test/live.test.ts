@@ -16,7 +16,7 @@
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { describe, expect, it } from 'vitest'
 import {
-  Config, QODER_PROVIDER, apply, liveConfig, resolveConfig,
+  Config, QODER_INTL_PROVIDER, QODER_PROVIDER, apply, liveConfig, resolveConfig,
 } from '../src/index.ts'
 
 /**
@@ -35,27 +35,50 @@ function parse(raw: Record<string, unknown>): Record<string, any> {
 function stubContext() {
   const recorded = {
     routes: [] as string[],
-    directory: [] as { displayName: string }[],
-    adapter: undefined as any,
+    adapters: [] as any[],
+    directory: [] as { provider: string, displayName: string }[],
     replaced: [] as unknown[],
     volatileListener: undefined as undefined | ((paths: readonly (readonly string[])[]) => void),
   }
-  const handle = (onReplace: (next: any) => void) => Object.assign(() => {}, {
-    replace: (next: any) => { recorded.replaced.push(next); onReplace(next) },
-  })
+  /**
+   * A registration handle, as the real registry returns it: callable to
+   * withdraw, with `replace` to swap contents in place.
+   */
+  const handle = (
+    onReplace: (next: any) => void,
+    onDispose: () => void,
+  ) => {
+    const disposer = Object.assign(() => { onDispose() }, {
+      replace: (next: any) => { recorded.replaced.push(next); onReplace(next) },
+    })
+    return disposer
+  }
   const ctx = {
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     llm: {
       registerAdapter: (providers: string[], adapter: unknown) => {
-        recorded.routes = [...providers]
-        recorded.adapter = adapter
-        return handle((next: string[]) => { recorded.routes = [...next] })
+        let held = [...providers]
+        recorded.routes.push(...providers)
+        recorded.adapters.push(adapter)
+        return handle(
+          (next: string[]) => {
+            recorded.routes = recorded.routes.filter(provider => !held.includes(provider))
+            held = [...next]
+            recorded.routes.push(...held)
+          },
+          () => { recorded.routes = recorded.routes.filter(provider => !held.includes(provider)) },
+        )
       },
-      registerConfigurableProviders: (entries: { displayName: string }[]) => {
-        recorded.directory = entries.map(entry => ({ ...entry }))
-        return handle((next: { displayName: string }[]) => {
-          recorded.directory = next.map(entry => ({ ...entry }))
-        })
+      registerConfigurableProviders: (entries: { provider: string, displayName: string }[]) => {
+        let held = entries.map(entry => ({ ...entry }))
+        recorded.directory = [...held]
+        return handle(
+          (next: { provider: string, displayName: string }[]) => {
+            held = next.map(entry => ({ ...entry }))
+            recorded.directory = [...held]
+          },
+          () => { recorded.directory = [] },
+        )
       },
     },
     inject: () => {},
@@ -77,11 +100,10 @@ describe('live config', () => {
     })
     const { ctx, recorded } = stubContext()
     apply(ctx as any, mounted as any)
-    const adapter = recorded.adapter
+    const adapter = recorded.adapters[0]
 
-    // One route only: the subscription catalog is the model source this plugin
-    // serves, so there is no second group to register.
-    expect(recorded.routes).toEqual([QODER_PROVIDER])
+    // One route per edition, each with its own adapter and catalog.
+    expect(recorded.routes).toEqual([QODER_PROVIDER, QODER_INTL_PROVIDER])
     expect(adapter.isModelDisabled('auto')).toBe(true)
     expect(adapter.contextWindowFor('auto')).toBe(200_000)
 
@@ -112,16 +134,45 @@ describe('live config', () => {
     const edited = parse({ displayName: 'Qoder 工作号' })
     updateVolatile(mounted.displayName, edited.displayName)
 
-    // The label is republished through the directory handle, not by
+    // The labels are republished through the directory handle, not by
     // re-registering: the provider set never changes any more.
-    expect(recorded.directory.map(entry => entry.displayName)).toEqual(['Qoder CN'])
+    expect(recorded.directory.map(entry => entry.displayName)).toEqual(['Qoder CN', 'Qoder 国际版'])
     recorded.volatileListener?.([['displayName']])
-    expect(recorded.directory.map(entry => entry.displayName)).toEqual(['Qoder 工作号'])
-    expect(recorded.routes).toEqual([QODER_PROVIDER])
+    expect(recorded.directory.map(entry => entry.displayName)).toEqual(['Qoder 工作号', 'Qoder 国际版'])
+    expect(recorded.routes).toEqual([QODER_PROVIDER, QODER_INTL_PROVIDER])
 
     recorded.replaced.length = 0
     recorded.volatileListener?.([['disabledModels']])
     expect(recorded.replaced).toEqual([])
+  })
+
+  it('registers only the editions that are switched on', () => {
+    const mounted = parse({ cnEnabled: false, intlEnabled: true })
+    const { ctx, recorded } = stubContext()
+    apply(ctx as any, mounted as any)
+
+    // Off means absent, not merely hidden: no route, no picker group.
+    expect(recorded.routes).toEqual([QODER_INTL_PROVIDER])
+    expect(recorded.directory.map(entry => entry.provider)).toEqual([QODER_INTL_PROVIDER])
+
+    const both = parse({ cnEnabled: true, intlEnabled: true })
+    updateVolatile(mounted.cnEnabled, both.cnEnabled)
+    recorded.volatileListener?.([['cnEnabled']])
+    expect([...recorded.routes].sort()).toEqual([QODER_INTL_PROVIDER, QODER_PROVIDER].sort())
+    expect(recorded.directory.map(entry => entry.provider).sort())
+      .toEqual([QODER_INTL_PROVIDER, QODER_PROVIDER].sort())
+
+    const cnOnly = parse({ cnEnabled: true, intlEnabled: false })
+    updateVolatile(mounted.intlEnabled, cnOnly.intlEnabled)
+    recorded.volatileListener?.([['intlEnabled']])
+    expect(recorded.routes).toEqual([QODER_PROVIDER])
+    expect(recorded.directory.map(entry => entry.provider)).toEqual([QODER_PROVIDER])
+
+    // Both off is a valid deployment: the plugin stays loaded with no routes.
+    updateVolatile(mounted.cnEnabled, parse({ cnEnabled: false }).cnEnabled)
+    recorded.volatileListener?.([['cnEnabled']])
+    expect(recorded.routes).toEqual([])
+    expect(recorded.directory).toEqual([])
   })
 
   it('keeps the two config views equivalent, including defaults', () => {
@@ -147,5 +198,8 @@ describe('live config', () => {
     expect(live.disabledModels()).toEqual([])
     expect(live.maxSessions()).toBe(8)
     expect(live.defaultReasoningEffort()).toBeUndefined()
+    // Both editions are on unless the profile explicitly switches one off.
+    expect(live.cnEnabled()).toBe(true)
+    expect(live.intlEnabled()).toBe(true)
   })
 })

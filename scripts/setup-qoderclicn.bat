@@ -22,6 +22,7 @@ set "PKG=@qodercn-ai/qoderclicn"
 set "MODE=setup"
 if /I "%~1"=="--check" set "MODE=check"
 if /I "%~1"=="--login" set "MODE=login"
+if /I "%~1"=="--uninstall" set "MODE=uninstall"
 if /I "%~1"=="/?"      goto :usage
 
 echo.
@@ -29,6 +30,7 @@ echo  ==============================================================
 if "%MODE%"=="check" echo   Qoder CN CLI - check only, nothing installed or changed
 if "%MODE%"=="login" echo   Qoder CN CLI - re-login only, nothing installed
 if "%MODE%"=="setup" echo   Qoder CN CLI - install and sign-in wizard
+if "%MODE%"=="uninstall" echo   Qoder CN CLI - remove the global CLI package
 echo  ==============================================================
 
 rem ---------------------------------------------------------------- 1 node
@@ -53,6 +55,8 @@ rem global npm shims live here; prepend so a fresh install is visible at once
 set "PATH=%APPDATA%\npm;%PATH%"
 for /f "delims=" %%P in ('npm config get prefix 2^>nul') do set "NPREFIX=%%P"
 if defined NPREFIX set "PATH=%NPREFIX%;%PATH%"
+
+if "%MODE%"=="uninstall" goto :uninstall
 
 rem ------------------------------------------------------------- 2 detect
 echo.
@@ -197,12 +201,30 @@ echo   this sign-in. Pick a Qoder CN model and start chatting.
 echo  ==============================================================
 goto :done
 
+:uninstall
+echo.
+echo [2/2] Uninstall %PKG%
+call npm uninstall -g "%PKG%"
+if errorlevel 1 (
+    echo       [X] npm uninstall failed.
+    echo           Open this script as Administrator and run it again.
+    goto :fail
+)
+echo       [OK] %PKG% removed
+echo.
+echo  ==============================================================
+echo   Uninstalled. Sign-in files are kept; run this script again
+echo   without --uninstall to reinstall and sign in.
+echo  ==============================================================
+goto :done
+
 :usage
 echo.
 echo   setup-qoderclicn.bat            install what is missing, then sign in
 echo   setup-qoderclicn.bat --check    verify only: version / sign-in / dirs / models
 echo   setup-qoderclicn.bat --login    re-open the browser sign-in, install nothing
 echo   setup-qoderclicn.bat --gui      as above but never pauses, for the DSH page
+echo   setup-qoderclicn.bat --uninstall  remove the global CLI package
 echo   setup-qoderclicn.bat /?         this help
 echo.
 set "MODE=check"

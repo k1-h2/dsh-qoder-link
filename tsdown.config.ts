@@ -4,9 +4,11 @@ import { defineConfig } from 'tsdown'
  * Bundle the host half into `lib/index.js`. Declaration files come from the
  * `tsc` step that runs first (see `package.json` → `build`).
  *
- * The dsh peer packages and the Qoder SDK stay external: the harness supplies
- * the former at runtime, and the latter must remain a real node_modules
- * package because its `postinstall` downloads the qoderclicn worker runtime.
+ * The dsh peer packages and both Qoder SDKs stay external: the harness
+ * supplies the former at runtime, and the SDKs must remain real node_modules
+ * packages because their `postinstall` downloads the CLI worker runtime. The
+ * international SDK is loaded through a variable dynamic import (`src/sdk.ts`),
+ * which the bundler cannot resolve anyway; the rule keeps it that way.
  */
 export default defineConfig({
   entry: ['src/index.ts'],
@@ -23,6 +25,7 @@ export default defineConfig({
     neverBundle: [
       /^@deepseek-ai\//,
       /^@qodercn-ai\//,
+      /^@qoder-ai\//,
       'zod',
     ],
   },

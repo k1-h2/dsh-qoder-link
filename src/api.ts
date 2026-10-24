@@ -5,10 +5,20 @@
  * fetched live from the Qoder CLI, while the form only carries what the user
  * stored. So the host answers these JSON routes:
  *
- * - `GET <prefix>/models` — every model the account exposes, each with its
- *   enabled state, the window it will use, and the windows it may use.
- * - `GET <prefix>/setup` — state of the CLI helper run, including what it printed.
- * - `POST <prefix>/setup` — start that helper: `{"mode":"configure"|"login"}`.
+ * - `GET <prefix>/models?brand=cn|global` — every model that account exposes,
+ *   each with its enabled state, the window it will use, and the windows it may
+ *   use.
+ * - `GET <prefix>/usage?brand=cn|global[&fresh=1]` — the account's quota and
+ *   usage, as the Qoder clients display them.
+ * - `GET <prefix>/setup?brand=cn|global` — state of that edition's CLI helper
+ *   run, including what it printed.
+ * - `POST <prefix>/setup` — start that helper:
+ *   `{"brand":"cn"|"global","mode":"configure"|"login"}`.
+ *
+ * Both editions answer through the same routes because the page and the host
+ * are one origin; the `brand` parameter selects which adapter answers, and an
+ * unknown value is refused rather than defaulted, so a typo cannot silently
+ * read the other account's data.
  *
  * Config writes deliberately do NOT come through here. The browser half already
  * holds a revision-fenced form for this plugin's config namespace
@@ -23,6 +33,8 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { QoderAdapter } from './adapter.ts'
+import type { QoderBrand } from './brand.ts'
+import { isQoderBrand } from './brand.ts'
 import { priceFactorOf } from './models.ts'
 import { isSetupMode, readSetupStatus, startSetup } from './setup.ts'
 
@@ -128,55 +140,91 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text)
 }
 
+/** The brand a query-string or body selected, or undefined when it named none. */
+function brandFrom(value: unknown): QoderBrand | undefined {
+  if (value === null || value === undefined || value === '') return 'cn'
+  return isQoderBrand(value) ? value : undefined
+}
+
 /**
  * Handle one request under {@link API_PREFIX}.
  *
  * @param req - the incoming request.
  * @param res - the response this handler owns.
- * @param adapter - the adapter whose live catalog backs the list.
+ * @param adapters - one adapter per edition; `brand` selects which answers.
  */
-export async function handleApi(req: IncomingMessage, res: ServerResponse, adapter: QoderAdapter): Promise<void> {
+export async function handleApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  adapters: Readonly<Record<QoderBrand, QoderAdapter>>,
+): Promise<void> {
   try {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const path = url.pathname.slice(API_PREFIX.length) || '/'
     const method = req.method ?? 'GET'
+    const queryBrand = brandFrom(url.searchParams.get('brand'))
+
+    if (queryBrand === undefined) {
+      send(res, 400, { error: 'brand 只接受 cn 或 global' })
+      return
+    }
+    const adapter = adapters[queryBrand]
 
     if (path === '/models' && method === 'GET') {
       // `?fresh=1` is the page's refresh button. The cached list is precisely
       // what a user wants to escape once the CLI's own state just changed.
       if (url.searchParams.get('fresh') === '1') adapter.invalidateCatalog()
-      send(res, 200, { models: await buildRows(adapter) })
+      const models = await buildRows(adapter)
+      // An empty list with a reason is a configuration problem the page can
+      // explain (missing SDK, signed-out CLI); an empty list alone is not.
+      const notice = models.length === 0 ? adapter.catalogError() : undefined
+      send(res, 200, { brand: queryBrand, models, ...notice === undefined ? {} : { notice } })
+      return
+    }
+
+    if (path === '/usage' && method === 'GET') {
+      const snapshot = await adapter.usageInfo(url.searchParams.get('fresh') === '1')
+      send(res, 200, { brand: queryBrand, ...snapshot })
       return
     }
 
     if (path === '/setup') {
       if (method === 'GET') {
-        send(res, 200, readSetupStatus())
+        send(res, 200, readSetupStatus(queryBrand))
         return
       }
       if (method === 'POST') {
-        let mode: unknown
+        let body: unknown
         try {
-          mode = (await readJson(req) as { mode?: unknown } | null)?.mode
+          body = (await readJson(req) as { brand?: unknown, mode?: unknown } | null) ?? {}
         } catch (error) {
           send(res, 400, { error: `请求体无法解析：${error instanceof Error ? error.message : String(error)}` })
           return
         }
-        if (!isSetupMode(mode)) {
-          send(res, 400, { error: 'mode 只接受 configure 或 login' })
+        const parsed = body as { brand?: unknown, mode?: unknown }
+        const postBrand = brandFrom(parsed.brand)
+        if (postBrand === undefined) {
+          send(res, 400, { error: 'brand 只接受 cn 或 global' })
           return
         }
-        const result = startSetup(mode, code => {
+        if (!isSetupMode(parsed.mode)) {
+          send(res, 400, { error: 'mode 只接受 configure、login 或 uninstall' })
+          return
+        }
+        const result = startSetup(postBrand, parsed.mode, code => {
           // A run that installed or signed into the CLI changed what the catalog
           // should hold, and an empty catalog is cached like any other answer.
-          if (code === 0) adapter.invalidateCatalog()
+          if (code === 0) {
+            adapters[postBrand].invalidateCatalog()
+            adapters[postBrand].invalidateUsage()
+          }
         })
         if (!result.started) {
           const status = result.reason === 'busy' ? 409 : result.reason === 'unsupported' ? 501 : 500
           send(res, status, { error: result.error })
           return
         }
-        send(res, 200, readSetupStatus())
+        send(res, 200, readSetupStatus(postBrand))
         return
       }
     }

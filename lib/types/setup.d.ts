@@ -1,5 +1,6 @@
 /**
- * Runs the bundled Windows helper that installs and signs into the Qoder CN CLI.
+ * Runs the bundled Windows helper that installs and signs into a Qoder CLI
+ * (one helper per edition: `qoderclicn` for CN, `qodercli` for international).
  *
  * The settings page cannot do this by itself: a browser has no way to start a
  * local process, and the plugin's own process is the one that already talks to
@@ -15,11 +16,14 @@
  *
  * @module dsh-qoder-link/setup
  */
-/** File name of the helper, shipped under this package's `scripts/` directory. */
+import type { QoderBrand } from './brand.ts';
+/** File name of the CN helper, shipped under this package's `scripts/` directory. */
 export declare const SCRIPT_NAME = "setup-qoderclicn.bat";
-/** What the page may ask for: install and sign in, or only sign in again. */
-export type SetupMode = 'configure' | 'login';
-/** Whether a value is one of the two modes the page may request. */
+/** The helper script for one edition. */
+export declare function scriptNameOf(brand: QoderBrand): string;
+/** What the page may ask for: install/sign in, only sign in, or uninstall. */
+export type SetupMode = 'configure' | 'login' | 'uninstall';
+/** Whether a value is one of the modes the page may request. */
 export declare function isSetupMode(value: unknown): value is SetupMode;
 /** Snapshot the page polls. Always safe to render; empty before the first run. */
 export interface SetupStatus {
@@ -33,24 +37,38 @@ export interface SetupStatus {
     truncated: boolean;
 }
 /**
- * Locate the helper inside this package.
+ * Locate one edition's helper inside this package.
  *
  * The host half is bundled to `lib/index.js`, and tests import `src/*.ts`, so
  * both layouts resolve to the same `scripts/` directory one level up.
+ *
+ * @param brand - which edition's script to find.
  */
-export declare function setupScriptPath(): string | undefined;
+export declare function setupScriptPath(brand?: QoderBrand): string | undefined;
 /** Why a run could not start, so the caller can pick a status of its own. */
 export type SetupFailure = 'busy' | 'unsupported' | 'missing-script';
-/** Start the helper. Only one run at a time; a finished one stays readable. */
-export declare function startSetup(mode: SetupMode, onFinish?: (code: number | null) => void): {
+/**
+ * Start one edition's helper. Only one run per edition at a time; a finished
+ * one stays readable.
+ *
+ * @param brand - which edition to configure.
+ * @param mode - the fixed flag the page may ask for.
+ * @param onFinish - called once with the exit code.
+ */
+export declare function startSetup(brand: QoderBrand, mode: SetupMode, onFinish?: (code: number | null) => void): {
     started: true;
 } | {
     started: false;
     reason: SetupFailure;
     error: string;
 };
-/** The current run, with any not-yet-newlined tail included for live display. */
-export declare function readSetupStatus(): SetupStatus;
+/**
+ * The latest run of one edition, with any not-yet-newlined tail included for
+ * live display.
+ *
+ * @param brand - which edition's run to report.
+ */
+export declare function readSetupStatus(brand?: QoderBrand): SetupStatus;
 /**
  * Abandon the running helper, if any.
  *

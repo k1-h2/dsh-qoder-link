@@ -10,9 +10,11 @@
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo, LlmResolvedModelInfo, PreparedAdapterCall, RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm';
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment';
+import type { QoderBrand } from './brand.ts';
 import type { Live } from './live.ts';
 import { QoderModelCatalog } from './models.ts';
 import type { Feed } from './render.ts';
+import type { UsageSnapshot } from './usage.ts';
 /**
  * Read one durable image occurrence into the bytes a request sends.
  * Implemented over `ctx.attachments`; returns undefined when the object is
@@ -61,9 +63,15 @@ export interface QoderAdapterOptions {
     defaultReasoningEffort?: Live<string | undefined>;
     /** Display name of the primary provider group. */
     displayName?: Live<string>;
+    /** Which edition this adapter serves; defaults to the CN one. */
+    brand?: QoderBrand;
+    /** How long one quota reading stays fresh; read per use. */
+    usageCacheTtlMs?: Live<number>;
 }
-/** The primary provider route (the qoder account's own models). */
+/** The primary provider route (the CN account's own models). */
 export declare const QODER_PROVIDER = "qoder-cn";
+/** The international edition's route; a second adapter instance serves it. */
+export declare const QODER_INTL_PROVIDER = "qoder-intl";
 /**
  * Decide the context window to report for one live model.
  *
@@ -128,7 +136,9 @@ export declare class QoderAdapter extends LlmAdapter {
     private readonly options;
     private readonly sessions;
     private readonly catalog;
+    private readonly usage;
     private readonly readImage;
+    private readonly brand;
     /**
      * Memoized `Set` view of the disabled-model list.
      *
@@ -171,6 +181,16 @@ export declare class QoderAdapter extends LlmAdapter {
     describeCatalog(): Promise<Awaited<ReturnType<QoderModelCatalog['liveModels']>>>;
     /** Forget the cached catalog; the next read asks the CLI again. */
     invalidateCatalog(): void;
+    /** Why the last catalog refresh failed, for the settings page's guidance. */
+    catalogError(): string | undefined;
+    /**
+     * Read the account's quota and usage, as the Qoder clients display it.
+     *
+     * @param fresh - ignore the cached reading.
+     */
+    usageInfo(fresh?: boolean): Promise<UsageSnapshot>;
+    /** Forget the cached quota reading; the next read asks the CLI again. */
+    invalidateUsage(): void;
     /** Whether the user switched one model off. */
     isModelDisabled(id: string): boolean;
     /** The stored disabled-model set, as a list for rewriting the field. */

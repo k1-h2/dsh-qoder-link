@@ -14,6 +14,8 @@ import type {
   PreparedAdapterCall, RequestMessage, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { QoderBrand } from './brand.ts'
+import { brandProfile } from './brand.ts'
 import {
   DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, QODER_MODELS, resolveQoderModelId,
 } from './catalog.ts'
@@ -25,6 +27,8 @@ import { feedImageRefs, feedToText, imageRefs, joinFeeds, renderInitialFeed, ren
 import type { Feed } from './render.ts'
 import { QoderSession, QoderSessionManager, DEFAULT_MAX_SESSIONS } from './session.ts'
 import type { ChannelContent, ResolvedImages, SessionModelPolicy } from './session.ts'
+import type { UsageSnapshot } from './usage.ts'
+import { QoderUsage } from './usage.ts'
 
 /**
  * Read one durable image occurrence into the bytes a request sends.
@@ -75,6 +79,10 @@ export interface QoderAdapterOptions {
   defaultReasoningEffort?: Live<string | undefined>
   /** Display name of the primary provider group. */
   displayName?: Live<string>
+  /** Which edition this adapter serves; defaults to the CN one. */
+  brand?: QoderBrand
+  /** How long one quota reading stays fresh; read per use. */
+  usageCacheTtlMs?: Live<number>
 }
 
 /** Shared empty values, so an unset list or map allocates nothing per read. */
@@ -82,8 +90,10 @@ const NO_MODELS: readonly string[] = []
 const NO_WINDOWS: Readonly<Record<string, number>> = {}
 const NO_ALIASES: Readonly<Record<string, string>> = {}
 
-/** The primary provider route (the qoder account's own models). */
+/** The primary provider route (the CN account's own models). */
 export const QODER_PROVIDER = 'qoder-cn'
+/** The international edition's route; a second adapter instance serves it. */
+export const QODER_INTL_PROVIDER = 'qoder-intl'
 
 /**
  * Decide the context window to report for one live model.
@@ -225,7 +235,9 @@ export class QoderAdapter extends LlmAdapter {
   private readonly options: QoderAdapterOptions
   private readonly sessions: QoderSessionManager
   private readonly catalog: QoderModelCatalog
+  private readonly usage: QoderUsage
   private readonly readImage: ImageRequestReader | undefined
+  private readonly brand: QoderBrand
   /**
    * Memoized `Set` view of the disabled-model list.
    *
@@ -238,15 +250,19 @@ export class QoderAdapter extends LlmAdapter {
   constructor(options: QoderAdapterOptions = {}) {
     super()
     this.options = options
+    this.brand = options.brand ?? 'cn'
     this.sessions = new QoderSessionManager(options.maxSessions ?? DEFAULT_MAX_SESSIONS, {
       toolResultTimeoutMs: options.toolResultTimeoutMs,
       abortGraceMs: options.abortGraceMs,
       coldMaxTurns: options.coldMaxTurns,
+      brand: this.brand,
     })
     this.catalog = new QoderModelCatalog(
+      this.brand,
       options.modelCacheTtlMs ?? DEFAULT_MODEL_CACHE_TTL_MS,
       options.catalogFetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
     )
+    this.usage = new QoderUsage(this.brand, options.usageCacheTtlMs)
     this.readImage = options.readImage
   }
 
@@ -276,7 +292,7 @@ export class QoderAdapter extends LlmAdapter {
   }
 
   private get displayName(): string {
-    return readLive(this.options.displayName, 'Qoder CN')
+    return readLive(this.options.displayName, brandProfile(this.brand).defaultDisplayName)
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
@@ -328,6 +344,25 @@ export class QoderAdapter extends LlmAdapter {
   /** Forget the cached catalog; the next read asks the CLI again. */
   invalidateCatalog(): void {
     this.catalog.invalidate()
+  }
+
+  /** Why the last catalog refresh failed, for the settings page's guidance. */
+  catalogError(): string | undefined {
+    return this.catalog.error
+  }
+
+  /**
+   * Read the account's quota and usage, as the Qoder clients display it.
+   *
+   * @param fresh - ignore the cached reading.
+   */
+  async usageInfo(fresh = false): Promise<UsageSnapshot> {
+    return this.usage.read(fresh)
+  }
+
+  /** Forget the cached quota reading; the next read asks the CLI again. */
+  invalidateUsage(): void {
+    this.usage.invalidate()
   }
 
   /** Whether the user switched one model off. */
@@ -400,7 +435,11 @@ export class QoderAdapter extends LlmAdapter {
         ...reasoning === undefined ? {} : { reasoning },
       }
     }
-    const configured = QODER_MODELS.find(entry => entry.id === target)
+    // The static catalog describes the CN plan only; an intl route whose live
+    // catalog is unreachable must not borrow model ids the account may not have.
+    const configured = brandProfile(this.brand).staticCatalog
+      ? QODER_MODELS.find(entry => entry.id === target)
+      : undefined
     const reasoning = reasoningInfo(undefined, this.defaultReasoningEffort, true)
     return Promise.resolve({
       ...configured === undefined

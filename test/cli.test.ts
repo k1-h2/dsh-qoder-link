@@ -12,7 +12,7 @@
  */
 import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { qoderCliOptions, resolveQoderCli, type CliLookup } from '../src/cli.ts'
+import { foreignCliOverride, qoderCliOptions, resolveQoderCli, type CliLookup } from '../src/cli.ts'
 import { cliContextWindow } from '../src/adapter.ts'
 import { isImageAttachFailure } from '../src/session.ts'
 
@@ -73,14 +73,14 @@ describe('qoder CLI lookup', () => {
   it('takes an explicit QODERCLI_PATH before anything it could find itself', () => {
     const custom = path.join(BASE, 'custom', 'qoderclicn.js')
     const lookup = withEnv({ QODERCLI_PATH: custom }, [custom, CN_BUNDLE])
-    expect(resolveQoderCli(lookup)?.path).toBe(custom)
+    expect(resolveQoderCli('cn', lookup)?.path).toBe(custom)
   })
 
   it('answers a native build with a path and no interpreter', () => {
-    expect(resolveQoderCli(machine([NATIVE]))).toEqual({ path: NATIVE })
+    expect(resolveQoderCli('cn', machine([NATIVE]))).toEqual({ path: NATIVE })
     // Nothing to prepend to PATH: the binary is its own entry point. The
     // environment still rides along, because the metering switch does.
-    expect(qoderCliOptions(machine([NATIVE]))).toEqual({
+    expect(qoderCliOptions('cn', machine([NATIVE]))).toEqual({
       pathToQoderCLIExecutable: NATIVE,
       env: { ...process.env, ...EXPOSED_USAGE },
     })
@@ -88,9 +88,9 @@ describe('qoder CLI lookup', () => {
 
   it('pairs an installed script with the Node that runs it', () => {
     const lookup = machine([CN_BUNDLE])
-    expect(resolveQoderCli(lookup)).toEqual({ path: CN_BUNDLE, nodeDir: path.dirname(HOST_NODE) })
+    expect(resolveQoderCli('cn', lookup)).toEqual({ path: CN_BUNDLE, nodeDir: path.dirname(HOST_NODE) })
 
-    const options = qoderCliOptions(lookup)
+    const options = qoderCliOptions('cn', lookup)
     expect(options.pathToQoderCLIExecutable).toBe(CN_BUNDLE)
     expect(options.executable).toBe('node')
     // The SDK reads `env` as the child's whole environment, not as a delta: the
@@ -106,22 +106,62 @@ describe('qoder CLI lookup', () => {
     // structurally 0% cache hit. Both brand prefixes are set because either
     // package can answer the lookup.
     for (const lookup of [machine([CN_BUNDLE]), machine([NATIVE])]) {
-      const options = qoderCliOptions(lookup)
+      const options = qoderCliOptions('cn', lookup)
       expect(options.env?.QODERCN_EXPOSE_TOKEN_USAGE).toBe('1')
       expect(options.env?.QODER_EXPOSE_TOKEN_USAGE).toBe('1')
     }
     // A machine with no CLI keeps the SDK's default transport, which this
     // module cannot hand an environment to.
-    expect(qoderCliOptions(machine([]))).toEqual({})
+    expect(qoderCliOptions('cn', machine([]))).toEqual({})
   })
 
-  it('also recognizes the INTL package the SDK serves', () => {
-    expect(resolveQoderCli(machine([INTL_BUNDLE]))?.path).toBe(INTL_BUNDLE)
+  it('keeps each edition on its own CLI and state directory', () => {
+    // The intl brand finds its own package and native install root…
+    expect(resolveQoderCli('global', machine([INTL_BUNDLE]))?.path).toBe(INTL_BUNDLE)
+    const intlNative = path.join(QODER_CLI_HOME, '.qoder', 'local', `qodercli${EXE}`)
+    expect(resolveQoderCli('global', machine([intlNative]))).toEqual({ path: intlNative })
+
+    // …and never the other edition's, because that CLI answers with the other
+    // account's credentials and protocol build.
+    expect(resolveQoderCli('global', machine([CN_BUNDLE, NATIVE]))).toBeUndefined()
+    expect(resolveQoderCli('cn', machine([INTL_BUNDLE, intlNative]))).toBeUndefined()
+  })
+
+  it('never lends the CN CLI override to the international route', () => {
+    // `QODERCLI_PATH` predates the intl edition and is set globally by some CN
+    // installs. Both SDKs read it from the parent process before any option, so
+    // the lookup must refuse it for the other brand — and the caller must be
+    // able to explain why the brand has no usable CLI.
+    const cnOnly = withEnv({ QODERCLI_PATH: CN_BUNDLE }, [CN_BUNDLE])
+    expect(resolveQoderCli('global', cnOnly)).toBeUndefined()
+    expect(foreignCliOverride('global', cnOnly)).toBe(CN_BUNDLE)
+    expect(foreignCliOverride('cn', cnOnly)).toBeUndefined()
+
+    // With an intl build of its own, the foreign override is ignored and the
+    // brand's own CLI wins.
+    const both = withEnv({ QODERCLI_PATH: CN_BUNDLE }, [CN_BUNDLE, INTL_BUNDLE])
+    expect(resolveQoderCli('global', both)?.path).toBe(INTL_BUNDLE)
+    expect(foreignCliOverride('global', both)).toBeUndefined()
+    // The explicit option wins over the SDK's own QODERCLI_PATH lookup, which
+    // would otherwise still resolve to the CN CLI.
+    expect(qoderCliOptions('global', both).pathToQoderCLIExecutable).toBe(INTL_BUNDLE)
+  })
+
+  it('honours brand-specific CLI overrides', () => {
+    const custom = path.join(BASE, 'custom', 'qodercli.js')
+    const lookup = withEnv({ QODER_CLI_PATH: custom }, [custom])
+    expect(resolveQoderCli('global', lookup)?.path).toBe(custom)
+    expect(resolveQoderCli('cn', lookup)).toBeUndefined()
+
+    const cnCustom = path.join(BASE, 'custom', 'qoderclicn.js')
+    const cnLookup = withEnv({ QODERCN_CLI_PATH: cnCustom }, [cnCustom])
+    expect(resolveQoderCli('cn', cnLookup)?.path).toBe(cnCustom)
+    expect(resolveQoderCli('global', cnLookup)).toBeUndefined()
   })
 
   it('prefers a real Node over DSH\'s shipped one', () => {
     const lookup = machine([CN_BUNDLE, HOST_NODE, RUNTIME_NODE])
-    expect(resolveQoderCli(lookup)?.nodeDir).toBe(path.dirname(HOST_NODE))
+    expect(resolveQoderCli('cn', lookup)?.nodeDir).toBe(path.dirname(HOST_NODE))
   })
 
   it('falls back to DSH\'s shipped runtime when the host is Electron', () => {
@@ -130,7 +170,7 @@ describe('qoder CLI lookup', () => {
       electron: true,
       readdir: dir => (path.normalize(dir) === path.normalize(RUNTIMES) ? ['dsh-primary-runtime'] : []),
     })
-    expect(resolveQoderCli(lookup)).toEqual({ path: CN_BUNDLE, nodeDir: path.dirname(RUNTIME_NODE) })
+    expect(resolveQoderCli('cn', lookup)).toEqual({ path: CN_BUNDLE, nodeDir: path.dirname(RUNTIME_NODE) })
   })
 
   it('falls back to PATH when neither the host nor DSH offers a Node', () => {
@@ -140,29 +180,31 @@ describe('qoder CLI lookup', () => {
       electron: true,
       env: { ...ENV, PATH: bin },
     })
-    expect(resolveQoderCli(lookup)).toEqual({ path: CN_BUNDLE, nodeDir: bin })
+    expect(resolveQoderCli('cn', lookup)).toEqual({ path: CN_BUNDLE, nodeDir: bin })
   })
 
   it('skips the worker runtime the SDK would answer in-process', () => {
     // Alone it is unusable: the SDK would run it on a thread inside DSH, which
     // is the transport that fails every image turn.
-    expect(resolveQoderCli(withEnv({ QODERCLI_PATH: WORKER }, [WORKER]))).toBeUndefined()
+    expect(resolveQoderCli('cn', withEnv({ QODERCLI_PATH: WORKER }, [WORKER]))).toBeUndefined()
 
     // Alongside a spawnable build, the build wins.
     const lookup = withEnv({ QODERCLI_PATH: WORKER }, [WORKER, CN_BUNDLE])
-    expect(resolveQoderCli(lookup)?.path).toBe(CN_BUNDLE)
-    expect(qoderCliOptions(machine([WORKER]))).toEqual({})
+    expect(resolveQoderCli('cn', lookup)?.path).toBe(CN_BUNDLE)
+    expect(qoderCliOptions('cn', machine([WORKER]))).toEqual({})
   })
 
   it('drops a script it has no interpreter for rather than only half-answering', () => {
     const lookup = machine([CN_BUNDLE], { execPath: ELECTRON, electron: true })
-    expect(resolveQoderCli(lookup)).toBeUndefined()
-    expect(qoderCliOptions(lookup)).toEqual({})
+    expect(resolveQoderCli('cn', lookup)).toBeUndefined()
+    expect(qoderCliOptions('cn', lookup)).toEqual({})
   })
 
   it('finds nothing on a bare machine, leaving the SDK\'s default transport', () => {
-    expect(resolveQoderCli(machine([]))).toBeUndefined()
-    expect(qoderCliOptions(machine([]))).toEqual({})
+    expect(resolveQoderCli('cn', machine([]))).toBeUndefined()
+    expect(resolveQoderCli('global', machine([]))).toBeUndefined()
+    expect(qoderCliOptions('cn', machine([]))).toEqual({})
+    expect(qoderCliOptions('global', machine([]))).toEqual({})
   })
 })
 

@@ -11,6 +11,9 @@ importers:
       '@deepseek-ai/cosmokit':
         specifier: '*'
         version: 1.8.5
+      '@qoder-ai/qoder-agent-sdk':
+        specifier: ^1.0.56
+        version: 1.0.56(zod@4.6.5)
       '@qodercn-ai/qodercn-agent-sdk':
         specifier: ^1.0.51
         version: 1.0.51(zod@4.6.5)
@@ -120,6 +123,12 @@ packages:
 
   '@oxc-project/types@0.153.0':
     resolution: {integrity: sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw==}
+
+  '@qoder-ai/qoder-agent-sdk@1.0.56':
+    resolution: {integrity: sha512-kBi0vd0MUHb2VpZFrFHoPfbMduyuSXSN/uzJUY7FRPB5+m+CidHVxZ5nmVRZNAlYu6cPPBNbuMPWPISLtbQhMg==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@qodercn-ai/qodercn-agent-sdk@1.0.51':
     resolution: {integrity: sha512-4qSyKfI9BcgC99sSIabad40sPndVfRluh+5HZXbY1U0od3OktlB37ug60ZsdKVdoVda0y2f8bHB7twpmSwOZ5Q==}
@@ -1225,6 +1234,14 @@ snapshots:
       - supports-color
 
   '@oxc-project/types@0.153.0': {}
+
+  '@qoder-ai/qoder-agent-sdk@1.0.56(zod@4.6.5)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.5)
+      zod: 4.6.5
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
 
   '@qodercn-ai/qodercn-agent-sdk@1.0.51(zod@4.6.5)':
     dependencies:

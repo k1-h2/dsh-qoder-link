@@ -13,25 +13,36 @@ import { describe, expect, it } from 'vitest'
 import {
   SCRIPT_NAME, isSetupMode, readSetupStatus, setupScriptPath, startSetup,
 } from '../src/setup.ts'
+import { brandProfile } from '../src/brand.ts'
 
 describe('setup helper', () => {
   it('finds the shipped script from this package layout', () => {
-    const script = setupScriptPath()
+    const script = setupScriptPath('cn')
     expect(script).toBeDefined()
     expect(script!.endsWith(`scripts${process.platform === 'win32' ? '\\' : '/'}${SCRIPT_NAME}`)).toBe(true)
     expect(existsSync(script!)).toBe(true)
   })
 
-  it('accepts only the two modes it can name a flag for', () => {
+  it('ships a helper for each edition', () => {
+    for (const id of ['cn', 'global'] as const) {
+      const script = setupScriptPath(id)
+      expect(script, id).toBeDefined()
+      expect(existsSync(script!), id).toBe(true)
+      expect(script!.endsWith(brandProfile(id).setupScript)).toBe(true)
+    }
+  })
+
+  it('accepts only the modes it can name a flag for', () => {
     expect(isSetupMode('configure')).toBe(true)
     expect(isSetupMode('login')).toBe(true)
+    expect(isSetupMode('uninstall')).toBe(true)
     for (const value of [undefined, null, '', 'CONFIGURE', '--gui', 'check', '--check', 'install && calc', {}]) {
       expect(isSetupMode(value)).toBe(false)
     }
   })
 
   it('answers an empty status before anything has run', () => {
-    const status = readSetupStatus()
+    const status = readSetupStatus('cn')
     expect(status.running).toBe(false)
     expect(status.lines).toEqual([])
     expect(status.truncated).toBe(false)
@@ -39,7 +50,7 @@ describe('setup helper', () => {
 
   const windows = process.platform === 'win32'
   it(windows ? 'runs the batch file and reports its output' : 'refuses to run off Windows', async () => {
-    const started = startSetup('configure')
+    const started = startSetup('cn', 'configure')
     if (!windows) {
       expect(started).toMatchObject({ started: false, reason: 'unsupported' })
       return
@@ -47,13 +58,13 @@ describe('setup helper', () => {
     expect(started.started).toBe(true)
 
     // A second request must be refused while the first one is still alive.
-    expect(startSetup('configure')).toMatchObject({ started: false, reason: 'busy' })
+    expect(startSetup('cn', 'configure')).toMatchObject({ started: false, reason: 'busy' })
 
     const deadline = Date.now() + 120_000
-    while (readSetupStatus().running && Date.now() < deadline) {
+    while (readSetupStatus('cn').running && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 250))
     }
-    const status = readSetupStatus()
+    const status = readSetupStatus('cn')
     expect(status.running).toBe(false)
     expect(typeof status.code).toBe('number')
     expect(status.lines.join('\n')).toContain('[1/5]')

@@ -1,5 +1,6 @@
 /**
- * Runs the bundled Windows helper that installs and signs into the Qoder CN CLI.
+ * Runs the bundled Windows helper that installs and signs into a Qoder CLI
+ * (one helper per edition: `qoderclicn` for CN, `qodercli` for international).
  *
  * The settings page cannot do this by itself: a browser has no way to start a
  * local process, and the plugin's own process is the one that already talks to
@@ -22,22 +23,30 @@ import { homedir } from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TextDecoder } from 'node:util'
+import type { QoderBrand } from './brand.ts'
+import { brandProfile } from './brand.ts'
 
-/** File name of the helper, shipped under this package's `scripts/` directory. */
+/** File name of the CN helper, shipped under this package's `scripts/` directory. */
 export const SCRIPT_NAME = 'setup-qoderclicn.bat'
 
-/** What the page may ask for: install and sign in, or only sign in again. */
-export type SetupMode = 'configure' | 'login'
+/** The helper script for one edition. */
+export function scriptNameOf(brand: QoderBrand): string {
+  return brandProfile(brand).setupScript
+}
+
+/** What the page may ask for: install/sign in, only sign in, or uninstall. */
+export type SetupMode = 'configure' | 'login' | 'uninstall'
 
 /** The one command-line flag each mode maps to. Never a user-supplied string. */
 const FLAGS: Record<SetupMode, string> = {
   configure: '--gui',
   login: '--login',
+  uninstall: '--uninstall',
 }
 
-/** Whether a value is one of the two modes the page may request. */
+/** Whether a value is one of the modes the page may request. */
 export function isSetupMode(value: unknown): value is SetupMode {
-  return value === 'configure' || value === 'login'
+  return value === 'configure' || value === 'login' || value === 'uninstall'
 }
 
 /** Cap on kept output, so a chatty `npm install` cannot grow without bound. */
@@ -46,6 +55,7 @@ const MAX_LINES = 400
 /** One run's state, kept for the lifetime of the process plus its tail. */
 interface Run {
   child: ChildProcess
+  brand: QoderBrand
   mode: SetupMode
   startedAt: number
   finishedAt?: number
@@ -57,7 +67,8 @@ interface Run {
   truncated: boolean
 }
 
-let current: Run | undefined
+/** The latest run per edition: the two installers may run independently. */
+const current = new Map<QoderBrand, Run>()
 
 /** Snapshot the page polls. Always safe to render; empty before the first run. */
 export interface SetupStatus {
@@ -72,16 +83,19 @@ export interface SetupStatus {
 }
 
 /**
- * Locate the helper inside this package.
+ * Locate one edition's helper inside this package.
  *
  * The host half is bundled to `lib/index.js`, and tests import `src/*.ts`, so
  * both layouts resolve to the same `scripts/` directory one level up.
+ *
+ * @param brand - which edition's script to find.
  */
-export function setupScriptPath(): string | undefined {
+export function setupScriptPath(brand: QoderBrand = 'cn'): string | undefined {
   const here = path.dirname(fileURLToPath(import.meta.url))
+  const script = scriptNameOf(brand)
   for (const candidate of [
-    path.resolve(here, '..', 'scripts', SCRIPT_NAME),
-    path.resolve(here, 'scripts', SCRIPT_NAME),
+    path.resolve(here, '..', 'scripts', script),
+    path.resolve(here, 'scripts', script),
   ]) {
     if (existsSync(candidate)) return candidate
   }
@@ -108,32 +122,44 @@ function absorb(run: Run, chunk: Uint8Array, done: boolean): void {
 /** Why a run could not start, so the caller can pick a status of its own. */
 export type SetupFailure = 'busy' | 'unsupported' | 'missing-script'
 
-/** Start the helper. Only one run at a time; a finished one stays readable. */
+/**
+ * Start one edition's helper. Only one run per edition at a time; a finished
+ * one stays readable.
+ *
+ * @param brand - which edition to configure.
+ * @param mode - the fixed flag the page may ask for.
+ * @param onFinish - called once with the exit code.
+ */
 export function startSetup(
+  brand: QoderBrand,
   mode: SetupMode,
   onFinish?: (code: number | null) => void,
 ): { started: true } | { started: false; reason: SetupFailure; error: string } {
-  if (current !== undefined && current.finishedAt === undefined) {
+  const previous = current.get(brand)
+  if (previous !== undefined && previous.finishedAt === undefined) {
     return { started: false, reason: 'busy', error: '已经有一次配置在跑了，请等它结束。' }
   }
   if (process.platform !== 'win32') {
+    const command = brandProfile(brand).cliCommands[0]
+    const action = mode === 'uninstall' ? '卸载' : '配置'
     return {
       started: false,
       reason: 'unsupported',
-      error: '一键配置只支持 Windows，请在 CLI 所在机器上手动安装并登录 qoderclicn。',
+      error: `一键${action}只支持 Windows，请在 CLI 所在机器上手动处理 ${command}。`,
     }
   }
-  const script = setupScriptPath()
+  const script = setupScriptPath(brand)
   if (script === undefined) {
     return {
       started: false,
       reason: 'missing-script',
-      error: `插件包里没有 ${SCRIPT_NAME}，缺少 scripts/ 目录。`,
+      error: `插件包里没有 ${scriptNameOf(brand)}，缺少 scripts/ 目录。`,
     }
   }
 
   const run: Run = {
     child: undefined as unknown as ChildProcess,
+    brand,
     mode,
     startedAt: Date.now(),
     lines: [],
@@ -149,7 +175,7 @@ export function startSetup(
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   run.child = child
-  current = run
+  current.set(brand, run)
 
   // Settles the run exactly once and hands the caller the exit code, so the
   // page's next read of the catalog is not served from a pre-login snapshot.
@@ -167,7 +193,7 @@ export function startSetup(
   child.stdout?.on('data', (chunk: Buffer) => absorb(run, chunk, false))
   child.stderr?.on('data', (chunk: Buffer) => absorb(run, chunk, false))
   child.on('error', error => {
-    run.lines.push(`无法启动 ${SCRIPT_NAME}：${error instanceof Error ? error.message : String(error)}`)
+    run.lines.push(`无法启动 ${scriptNameOf(brand)}：${error instanceof Error ? error.message : String(error)}`)
     finish(null)
   })
   child.on('close', code => {
@@ -177,19 +203,25 @@ export function startSetup(
   return { started: true }
 }
 
-/** The current run, with any not-yet-newlined tail included for live display. */
-export function readSetupStatus(): SetupStatus {
-  if (current === undefined) return { running: false, lines: [], truncated: false }
-  const lines = current.pending.trim() === ''
-    ? current.lines
-    : [...current.lines, current.pending.trim()]
+/**
+ * The latest run of one edition, with any not-yet-newlined tail included for
+ * live display.
+ *
+ * @param brand - which edition's run to report.
+ */
+export function readSetupStatus(brand: QoderBrand = 'cn'): SetupStatus {
+  const run = current.get(brand)
+  if (run === undefined) return { running: false, lines: [], truncated: false }
+  const lines = run.pending.trim() === ''
+    ? run.lines
+    : [...run.lines, run.pending.trim()]
   return {
-    running: current.finishedAt === undefined,
-    mode: current.mode,
-    startedAt: current.startedAt,
-    ...current.finishedAt === undefined ? {} : { finishedAt: current.finishedAt, code: current.code ?? null },
+    running: run.finishedAt === undefined,
+    mode: run.mode,
+    startedAt: run.startedAt,
+    ...run.finishedAt === undefined ? {} : { finishedAt: run.finishedAt, code: run.code ?? null },
     lines,
-    truncated: current.truncated,
+    truncated: run.truncated,
   }
 }
 
@@ -201,5 +233,7 @@ export function readSetupStatus(): SetupStatus {
  * the far end.
  */
 export function stopSetup(): void {
-  if (current !== undefined && current.finishedAt === undefined) current.child.kill()
+  for (const run of current.values()) {
+    if (run.finishedAt === undefined) run.child.kill()
+  }
 }

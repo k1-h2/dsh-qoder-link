@@ -8,6 +8,7 @@
  * @module dsh-llm-qoder/session
  */
 import type { ContentBlock, GenerateOptions, RequestMessage, StreamChunk, ToolSchema, TokenUsage } from '@deepseek-ai/dsh-llm';
+import type { QoderBrand } from './brand.ts';
 import type { Live } from './live.ts';
 /** MCP server name this adapter exposes host tools under. */
 export declare const MCP_SERVER_NAME = "dsh-host";
@@ -28,6 +29,8 @@ export interface SessionRuntimeOptions {
     toolResultTimeoutMs?: Live<number>;
     /** How long the inner process gets to acknowledge an abort. */
     abortGraceMs?: Live<number>;
+    /** Which edition's SDK and CLI this session speaks to. */
+    brand?: QoderBrand;
 }
 /** Per-request model policy a warm session runs with. */
 export interface SessionModelPolicy {
@@ -485,6 +488,8 @@ export declare class QoderSession {
     /** Per-session runtime knobs, resolved from the plugin config at creation. */
     private readonly toolResultTimeoutMs;
     private readonly abortGraceMs;
+    /** Which edition's CLI (and SDK) this session runs on. */
+    private readonly brand;
     constructor(sessionId: string, initialModel: string, runtime?: SessionRuntimeOptions);
     /** Spawn the inner process (first stream only) and attach the consumer. */
     private ensureStarted;

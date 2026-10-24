@@ -1,19 +1,26 @@
 /**
- * Live model catalog retrieval from the local Qoder CLI. One short-lived
- * inner session sends the SDK's `get_models` control request; the response
- * (including account-custom models) stays fresh for a TTL, concurrent
- * callers share one in-flight fetch, and the static catalog is the fallback
- * while the CLI is unreachable.
+ * Live model catalog retrieval from one edition's local Qoder CLI. One
+ * short-lived inner session sends the SDK's `get_models` control request; the
+ * response (including account-custom models) stays fresh for a TTL, concurrent
+ * callers share one in-flight fetch, and the static CN catalog is the fallback
+ * while that edition's CLI is unreachable.
+ *
+ * The CN and international editions publish different catalogs, so cache and
+ * fallback are kept per brand: a list fetched from one account must never be
+ * served to the other route.
+ *
  * @module dsh-llm-qoder/models
  */
 
 import type { ModelInfo } from '@qodercn-ai/qodercn-agent-sdk'
-import { qodercliAuth, query } from '@qodercn-ai/qodercn-agent-sdk'
+import type { QoderBrand } from './brand.ts'
+import { brandProfile } from './brand.ts'
 import type { QoderCatalogModel } from './catalog.ts'
 import { QODER_MODELS } from './catalog.ts'
-import { qoderCliOptions } from './cli.ts'
+import { cliConflictMessage, foreignCliOverride, qoderCliOptions } from './cli.ts'
 import type { Live } from './live.ts'
 import { readLive } from './live.ts'
+import { loadSdk } from './sdk.ts'
 
 /** How long a fetched catalog stays fresh by default. */
 export const DEFAULT_MODEL_CACHE_TTL_MS = 5 * 60_000
@@ -27,8 +34,8 @@ interface CatalogSnapshot {
 }
 
 /**
- * Last successful catalog, shared by every {@link QoderModelCatalog} in this
- * process.
+ * Last successful catalog per brand, shared by every {@link QoderModelCatalog}
+ * in this process.
  *
  * A settings write does NOT restart this plugin — a volatile edit is committed
  * into the running cells (see `live.ts`) — so the cache now only has to survive
@@ -40,20 +47,24 @@ interface CatalogSnapshot {
  * The entry carries its own timestamp and is only used while it is still within
  * the requesting catalog's TTL, so normal freshness is unchanged.
  */
-let sharedSnapshot: CatalogSnapshot | undefined
+const sharedSnapshots = new Map<QoderBrand, CatalogSnapshot>()
 
 /** Cached live CLI catalog with a static fallback. */
 export class QoderModelCatalog {
   private cached: CatalogSnapshot | undefined
   private inflight: Promise<readonly ModelInfo[]> | undefined
+  /** Why the last refresh failed, for the settings page's guidance. */
+  private failure: string | undefined
 
   /**
+   * @param brand - which edition's CLI answers.
    * @param ttlMs - how long a fetched catalog stays fresh before a re-fetch.
    *   Read per use, so a settings edit takes effect on the next read.
    * @param fetchTimeoutMs - how long one CLI catalog fetch may take before the
    *   static fallback takes over.
    */
   constructor(
+    private readonly brand: QoderBrand,
     private readonly ttlMs: Live<number>,
     private readonly fetchTimeoutMs: Live<number> = DEFAULT_FETCH_TIMEOUT_MS,
   ) {}
@@ -69,7 +80,7 @@ export class QoderModelCatalog {
     const fresh = (snapshot: CatalogSnapshot | undefined): boolean =>
       snapshot !== undefined && Date.now() - snapshot.at < ttlMs
     // Own cache first, then the process-wide one a previous adapter left behind.
-    const cached = this.cached ?? sharedSnapshot
+    const cached = this.cached ?? sharedSnapshots.get(this.brand)
     if (fresh(cached) && cached !== undefined) {
       this.cached = cached
       return officialOnly(cached.models)
@@ -79,13 +90,20 @@ export class QoderModelCatalog {
       const models = await this.inflight
       const snapshot: CatalogSnapshot = { at: Date.now(), models }
       this.cached = snapshot
-      sharedSnapshot = snapshot
+      sharedSnapshots.set(this.brand, snapshot)
+      this.failure = undefined
       return officialOnly(models)
-    } catch {
+    } catch (error) {
+      this.failure = error instanceof Error ? error.message : String(error)
       // A failed refresh keeps serving the last good list rather than dropping
       // to the static fallback, which would hide the account's real models.
-      return officialOnly((this.cached ?? sharedSnapshot)?.models ?? [])
+      return officialOnly((this.cached ?? sharedSnapshots.get(this.brand))?.models ?? [])
     }
+  }
+
+  /** Why the last refresh failed, or undefined when it succeeded. */
+  get error(): string | undefined {
+    return this.failure
   }
 
   /**
@@ -98,13 +116,14 @@ export class QoderModelCatalog {
    */
   invalidate(): void {
     this.cached = undefined
-    sharedSnapshot = undefined
+    sharedSnapshots.delete(this.brand)
+    this.failure = undefined
   }
 
   /** dsh catalog entries: the enabled live list, or the static fallback. */
   async models(): Promise<readonly QoderCatalogModel[]> {
     const live = (await this.liveModels()).filter(model => model.isEnabled !== false)
-    if (live.length === 0) return QODER_MODELS
+    if (live.length === 0) return brandProfile(this.brand).staticCatalog ? QODER_MODELS : []
     return live.map(model => ({
       id: model.value,
       name: model.displayName.length > 0 ? model.displayName : model.value,
@@ -114,12 +133,16 @@ export class QoderModelCatalog {
       ...model.isVl === true ? { isVl: true } : {},
     }))
   }
+
   private async fetch(): Promise<readonly ModelInfo[]> {
-    const q = query({
+    const conflict = foreignCliOverride(this.brand)
+    if (conflict !== undefined) throw new Error(cliConflictMessage(this.brand))
+    const sdk = await loadSdk(this.brand)
+    const q = sdk.query({
       prompt: inertInput(),
       options: {
-        ...qoderCliOptions(),
-        auth: qodercliAuth(),
+        ...qoderCliOptions(this.brand),
+        auth: sdk.qodercliAuth(),
         tools: [],
         allowedTools: [],
         settingSources: [],
@@ -170,9 +193,9 @@ async function* inertInput(): AsyncGenerator<never> {
   await new Promise<never>(() => {})
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => { reject(new Error(`qoder model catalog fetch timed out after ${ms}ms`)) }, ms)
+    const timer = setTimeout(() => { reject(new Error(`qoder request timed out after ${ms}ms`)) }, ms)
     promise.then(
       (value) => { clearTimeout(timer); resolve(value) },
       (error: unknown) => { clearTimeout(timer); reject(error) },

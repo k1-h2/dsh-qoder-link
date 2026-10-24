@@ -16,13 +16,15 @@ import {
 import type {
   ContentBlock, FinishReason, GenerateOptions, RequestMessage, StreamChunk, ToolSchema, TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { createSdkMcpServer, qodercliAuth, query } from '@qodercn-ai/qodercn-agent-sdk'
+import { createSdkMcpServer, qodercliAuth } from '@qodercn-ai/qodercn-agent-sdk'
 import type { CanUseTool, Query } from '@qodercn-ai/qodercn-agent-sdk'
-import { qoderCliOptions } from './cli.ts'
+import type { QoderBrand } from './brand.ts'
+import { cliConflictMessage, foreignCliOverride, qoderCliOptions } from './cli.ts'
 import { jsonSchemaToShape } from './jsonschema.ts'
 import type { Live } from './live.ts'
 import { readLive } from './live.ts'
 import { feedImageRefs, feedTextLength, feedWideCharCount, renderInitialFeed } from './render.ts'
+import { loadSdk } from './sdk.ts'
 import { TurnOutputAccounting, estimateTextTokens } from './tokens.ts'
 
 /** MCP server name this adapter exposes host tools under. */
@@ -74,6 +76,8 @@ export interface SessionRuntimeOptions {
   toolResultTimeoutMs?: Live<number>
   /** How long the inner process gets to acknowledge an abort. */
   abortGraceMs?: Live<number>
+  /** Which edition's SDK and CLI this session speaks to. */
+  brand?: QoderBrand
 }
 
 /** Per-request model policy a warm session runs with. */
@@ -804,6 +808,8 @@ export class QoderSession {
   /** Per-session runtime knobs, resolved from the plugin config at creation. */
   private readonly toolResultTimeoutMs: number
   private readonly abortGraceMs: number
+  /** Which edition's CLI (and SDK) this session runs on. */
+  private readonly brand: QoderBrand
 
   constructor(
     readonly sessionId: string,
@@ -813,18 +819,27 @@ export class QoderSession {
     this.model = initialModel
     this.toolResultTimeoutMs = readLive(runtime.toolResultTimeoutMs, DEFAULT_TOOL_RESULT_TIMEOUT_MS)
     this.abortGraceMs = readLive(runtime.abortGraceMs, DEFAULT_ABORT_GRACE_MS)
+    this.brand = runtime.brand ?? 'cn'
   }
 
   /** Spawn the inner process (first stream only) and attach the consumer. */
-  private ensureStarted(): Query {
+  private async ensureStarted(): Promise<Query> {
     if (this.q !== null) return this.q
-    const q = query({
+    // The SDK reads QODERCLI_PATH itself before any option we pass, so a
+    // foreign value must fail the turn instead of answering with the other
+    // account's CLI. See `cli.ts`.
+    const conflict = foreignCliOverride(this.brand)
+    if (conflict !== undefined) throw new Error(cliConflictMessage(this.brand))
+    // The SDK is brand-specific: the CN module speaks to qoderclicn and the
+    // international one to qodercli, each against its own credentials.
+    const sdk = await loadSdk(this.brand)
+    const q = sdk.query({
       prompt: this.channel,
       options: {
         // Spawn the CLI instead of running its runtime in a worker thread: in
         // this process that thread's sharp fights the host's own over the
         // libvips DLL every image needs. See `cli.ts`.
-        ...qoderCliOptions(),
+        ...qoderCliOptions(this.brand),
         auth: qodercliAuth(),
         tools: [],
         allowedTools: [],
@@ -971,7 +986,7 @@ export class QoderSession {
   ): AsyncGenerator<StreamChunk> {
     if (this.queue !== null) throw new LlmError(`qoder session ${this.sessionId} already has a turn in flight`, 'CONFLICT')
     if (this.disposed) throw new LlmError(`qoder session ${this.sessionId} was disposed`, 'TRANSPORT')
-    const q = this.ensureStarted()
+    const q = await this.ensureStarted()
     this.queue = new TurnQueue()
     this.resetTurnState()
     if (feed !== null) {
@@ -1508,10 +1523,14 @@ export class QoderSessionManager {
   /** One-shot turn with no warm state: side channels and cold rebuilds. */
   async *coldStream(options: GenerateOptions, prompt: string, model?: string): AsyncGenerator<StreamChunk> {
     const systemPrompt = options.system
-    const q = query({
+    const brand = this.runtime.brand ?? 'cn'
+    const conflict = foreignCliOverride(brand)
+    if (conflict !== undefined) throw new Error(cliConflictMessage(brand))
+    const sdk = await loadSdk(brand)
+    const q = sdk.query({
       prompt,
       options: {
-        ...qoderCliOptions(),
+        ...qoderCliOptions(brand),
         auth: qodercliAuth(),
         tools: [],
         allowedTools: [],

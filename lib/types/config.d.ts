@@ -28,6 +28,16 @@ import z from '@deepseek-ai/schemastery';
  */
 export interface Config {
     /**
+     * Whether the Qoder CN edition is served at all.
+     *
+     * Off removes its provider route, its model group and its settings page. The
+     * per-model choices are kept, so switching it back on restores the previous
+     * configuration rather than resetting it.
+     */
+    cnEnabled?: boolean;
+    /** Whether the international edition is served; same semantics as {@link cnEnabled}. */
+    intlEnabled?: boolean;
+    /**
      * Model ids the user switched OFF in the settings page.
      *
      * Stored as a deny-list rather than an allow-list so a newly published model
@@ -52,6 +62,26 @@ export interface Config {
      * merged over the built-in `deepseek-v4-*` ones.
      */
     modelAliases?: Record<string, string>;
+    /**
+     * Model ids the user switched OFF for the international edition.
+     *
+     * A separate list from the CN one on purpose: the two plans publish different
+     * catalogs, and a shared deny-list would hide a model on one side because the
+     * user happened to switch an unrelated id off on the other.
+     */
+    intlDisabledModels?: string[];
+    /**
+     * Per-model context window for the international edition, keyed by model id.
+     */
+    intlModelContextWindows?: Record<string, number>;
+    /**
+     * Extra model aliases for the international edition.
+     */
+    intlModelAliases?: Record<string, string>;
+    /**
+     * Display name of the international provider group in the model picker.
+     */
+    intlDisplayName?: string;
     /**
      * Display name of the primary provider group in the model picker.
      */
@@ -127,8 +157,14 @@ export interface Config {
  * `src/live.ts` for the full mechanism.
  */
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
+    cnEnabled: z<boolean, boolean, "volatile-defined">;
+    intlEnabled: z<boolean, boolean, "volatile-defined">;
     disabledModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     modelContextWindows: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlDisabledModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    intlModelContextWindows: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlModelAliases: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
+    intlDisplayName: z<string, string, "volatile-defined">;
     displayName: z<string, string, "volatile-defined">;
     maxSessions: z<number, number, "volatile-defined">;
     modelCacheTtlSeconds: z<number, number, "volatile-defined">;
@@ -140,8 +176,14 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     abortGraceSeconds: z<number, number, "volatile-defined">;
     coldMaxTurns: z<number, number, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
+    cnEnabled: z<boolean, boolean, "volatile-defined">;
+    intlEnabled: z<boolean, boolean, "volatile-defined">;
     disabledModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
     modelContextWindows: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlDisabledModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile-defined">;
+    intlModelContextWindows: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<number, string>>, "volatile-defined">;
+    intlModelAliases: z<NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, NoInfer<import("@deepseek-ai/cosmokit").Dict<string, string>>, "volatile-defined">;
+    intlDisplayName: z<string, string, "volatile-defined">;
     displayName: z<string, string, "volatile-defined">;
     maxSessions: z<number, number, "volatile-defined">;
     modelCacheTtlSeconds: z<number, number, "volatile-defined">;
@@ -155,6 +197,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
 }>>, "plain">;
 /** Fully-resolved options with every default applied. */
 export interface ResolvedConfig {
+    cnEnabled: boolean;
+    intlEnabled: boolean;
     displayName: string;
     maxSessions: number;
     modelCacheTtlMs: number;
@@ -167,6 +211,10 @@ export interface ResolvedConfig {
     modelContextWindows: Readonly<Record<string, number>>;
     modelAliases: Readonly<Record<string, string>>;
     defaultReasoningEffort: string | undefined;
+    intlDisplayName: string;
+    intlDisabledModels: readonly string[];
+    intlModelContextWindows: Readonly<Record<string, number>>;
+    intlModelAliases: Readonly<Record<string, string>>;
 }
 /**
  * A parsed config as it arrives at `apply()`: every field wrapped in the
